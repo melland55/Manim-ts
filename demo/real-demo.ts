@@ -51,6 +51,7 @@ interface RenderMobject {
   label?: string;
   showDot?: boolean;
   dotPosition?: Point3;  // fixed dot position (doesn't move with points)
+  forceClose?: boolean;  // force closePath even if path endpoints don't match
 }
 
 // ── Extract real-engine VMobject → plain RenderMobject ───────
@@ -159,7 +160,7 @@ function setupTransform(ctx: CanvasRenderingContext2D, pw: number, ph: number): 
   );
 }
 
-function drawPath(ctx: CanvasRenderingContext2D, points: Point3[]): void {
+function drawPath(ctx: CanvasRenderingContext2D, points: Point3[], forceClose = false): void {
   if (points.length === 0) return;
   ctx.beginPath();
   ctx.moveTo(points[0][0], points[0][1]);
@@ -175,14 +176,14 @@ function drawPath(ctx: CanvasRenderingContext2D, points: Point3[]): void {
   const last = points[points.length - 1];
   const first = points[0];
   const isClosed = Math.abs(last[0] - first[0]) < 1e-4 && Math.abs(last[1] - first[1]) < 1e-4;
-  if (isClosed) ctx.closePath();
+  if (isClosed || forceClose) ctx.closePath();
 }
 
 function renderMob(ctx: CanvasRenderingContext2D, mob: RenderMobject, pw: number, ph: number): void {
   if (mob.points.length === 0) return;
   ctx.save();
   setupTransform(ctx, pw, ph);
-  drawPath(ctx, mob.points);
+  drawPath(ctx, mob.points, mob.forceClose);
 
   if (mob.fillOpacity > 0) {
     ctx.fillStyle = colorCSS(mob.fillColor, mob.fillOpacity);
@@ -1048,6 +1049,9 @@ const scene = new DemoScene("manim-canvas");
   shapes.push(extractRenderMobject(starMob, "Star"));
 
 
+  // Close arc paths so they render as a circle with a slice cut out
+  for (const s of shapes) if (s.label === "Arc") s.forceClose = true;
+
   for (const s of shapes) {
     scene.queueCreate(s, 0.6);
   }
@@ -1122,6 +1126,9 @@ const scene = new DemoScene("manim-canvas");
   for (let i = 0; i < row2.length; i++) { shiftToCenter(row2[i], xPositions[i], row2Y, isArcShape(row2[i].label ?? "")); shapes.push(row2[i]); }
   for (let i = 0; i < row3.length; i++) { shiftToCenter(row3[i], row3X[i], row3Y, isArcShape(row3[i].label ?? "")); shapes.push(row3[i]); }
 
+  // Close arc paths so they render as a circle with a slice cut out
+  for (const s of shapes) if (s.label === "Arc") s.forceClose = true;
+
   for (const s of shapes) {
     const center = isArcShape(s.label ?? "") ? boundingBoxCenter(s.points) : geometricCentroid(s.points);
     scene.queueGrow(s, 0.6, center);
@@ -1165,6 +1172,9 @@ const scene = new DemoScene("manim-canvas");
     buildShape(Arc,            { radius: 0.8, angle: TAU * 0.75, strokeColor: GOLD, strokeOpacity: 1, fillColor: GOLD, fillOpacity: 0.3, strokeWidth: 3, _shift: [5, -1, 0] }),
   ];
 
+  // Close arc paths so they render as a circle with a slice cut out
+  for (const s of shapes) if (s.label === "Arc") s.forceClose = true;
+
   // Show fixed center dots — geometric centroid for closed polygons, bounding box for arc
   const arcIndex = shapes.length - 1; // last shape is the arc
   for (let i = 0; i < shapes.length; i++) {
@@ -1195,45 +1205,42 @@ const scene = new DemoScene("manim-canvas");
 };
 
 (window as any).animTransform = () => {
+  const r = 1.5;
+  let firstRun = true;
+
   function runTransformLoop() {
     scene.clearAll();
     log("Animation: Transform — morph chain (looping)");
 
-    // Logical order: triangle (3) → square (4) → pentagon (5) → hexagon (6) → heptagon (7)
-    // → octagon (8) → decagon (10) → circle → decagon → octagon → ... → triangle
-    const r = 1.5;
     const morphTargets = [
-      buildShape(Triangle,       { radius: r,       fillColor: YELLOW, fillOpacity: 0.5, strokeColor: YELLOW, strokeOpacity: 1 }),
-      buildShape(Square,         { sideLength: r * 2, fillColor: GREEN,  fillOpacity: 0.5, strokeColor: GREEN,  strokeOpacity: 1 }),
-      buildShape(RegularPolygon, { n: 5, radius: r,  fillColor: RED,    fillOpacity: 0.5, strokeColor: RED,    strokeOpacity: 1 }),
-      buildShape(RegularPolygon, { n: 6, radius: r,  fillColor: PURPLE, fillOpacity: 0.5, strokeColor: PURPLE, strokeOpacity: 1 }),
-      buildShape(RegularPolygon, { n: 7, radius: r,  fillColor: ORANGE, fillOpacity: 0.5, strokeColor: ORANGE, strokeOpacity: 1 }),
-      buildShape(RegularPolygon, { n: 8, radius: r,  fillColor: MAROON, fillOpacity: 0.5, strokeColor: MAROON, strokeOpacity: 1 }),
-      buildShape(RegularPolygon, { n: 10, radius: r, fillColor: PINK,   fillOpacity: 0.5, strokeColor: PINK,   strokeOpacity: 1 }),
-      buildShape(RegularPolygon, { n: 12, radius: r, fillColor: TEAL,   fillOpacity: 0.5, strokeColor: TEAL,   strokeOpacity: 1 }),
-      buildShape(Circle,         { radius: r,        fillColor: BLUE,   fillOpacity: 0.5, strokeColor: BLUE,   strokeOpacity: 1 }),
-      // Back down
-      buildShape(RegularPolygon, { n: 12, radius: r, fillColor: TEAL,   fillOpacity: 0.5, strokeColor: TEAL,   strokeOpacity: 1 }),
-      buildShape(RegularPolygon, { n: 10, radius: r, fillColor: PINK,   fillOpacity: 0.5, strokeColor: PINK,   strokeOpacity: 1 }),
-      buildShape(RegularPolygon, { n: 8, radius: r,  fillColor: MAROON, fillOpacity: 0.5, strokeColor: MAROON, strokeOpacity: 1 }),
-      buildShape(RegularPolygon, { n: 7, radius: r,  fillColor: ORANGE, fillOpacity: 0.5, strokeColor: ORANGE, strokeOpacity: 1 }),
-      buildShape(RegularPolygon, { n: 6, radius: r,  fillColor: PURPLE, fillOpacity: 0.5, strokeColor: PURPLE, strokeOpacity: 1 }),
-      buildShape(RegularPolygon, { n: 5, radius: r,  fillColor: RED,    fillOpacity: 0.5, strokeColor: RED,    strokeOpacity: 1 }),
-      buildShape(Square,         { sideLength: r * 2, fillColor: GREEN,  fillOpacity: 0.5, strokeColor: GREEN,  strokeOpacity: 1 }),
-      buildShape(Triangle,       { radius: r,        fillColor: YELLOW, fillOpacity: 0.5, strokeColor: YELLOW, strokeOpacity: 1 }),
+      buildShape(Triangle,       { radius: r,       fillColor: RED,    fillOpacity: 0.5, strokeColor: RED,    strokeOpacity: 1 }),
+      buildShape(Square,         { sideLength: r * 2, fillColor: ORANGE, fillOpacity: 0.5, strokeColor: ORANGE, strokeOpacity: 1 }),
+      buildShape(RegularPolygon, { n: 5, radius: r,  fillColor: YELLOW, fillOpacity: 0.5, strokeColor: YELLOW, strokeOpacity: 1 }),
+      buildShape(RegularPolygon, { n: 6, radius: r,  fillColor: GREEN,  fillOpacity: 0.5, strokeColor: GREEN,  strokeOpacity: 1 }),
+      buildShape(RegularPolygon, { n: 7, radius: r,  fillColor: BLUE,   fillOpacity: 0.5, strokeColor: BLUE,   strokeOpacity: 1 }),
+      buildShape(RegularPolygon, { n: 8, radius: r,  fillColor: TEAL,   fillOpacity: 0.5, strokeColor: TEAL,   strokeOpacity: 1 }),
+      buildShape(RegularPolygon, { n: 10, radius: r, fillColor: PURPLE, fillOpacity: 0.5, strokeColor: PURPLE, strokeOpacity: 1 }),
+      buildShape(RegularPolygon, { n: 12, radius: r, fillColor: PINK,   fillOpacity: 0.5, strokeColor: PINK,   strokeOpacity: 1 }),
+      buildShape(Circle,         { radius: r,        fillColor: RED,    fillOpacity: 0.5, strokeColor: RED,    strokeOpacity: 1 }),
     ];
 
-    // Start with a circle, then morph through all targets
-    const start = buildShape(Circle, { radius: r, fillColor: BLUE, fillOpacity: 0.5, strokeColor: BLUE, strokeOpacity: 1 });
-    scene.queueGrow(start, 0.8);
-    scene.queueWait(1.0);
+    const start = buildShape(Circle, { radius: r, fillColor: RED, fillOpacity: 0.5, strokeColor: RED, strokeOpacity: 1 });
+
+    if (firstRun) {
+      scene.queueGrow(start, 0.8);
+      scene.queueWait(1.0);
+      firstRun = false;
+    } else {
+      // On loop, start already showing the circle
+      scene.add(start);
+    }
 
     for (const target of morphTargets) {
       scene.queueTransform(start, target, 1.5);
       scene.queueWait(0.8);
     }
 
-    scene.onComplete = () => setTimeout(runTransformLoop, 500);
+    scene.onComplete = runTransformLoop;
     scene.play();
   }
   runTransformLoop();
@@ -1314,6 +1321,7 @@ const scene = new DemoScene("manim-canvas");
   scene.clearAll();
   log("Colors: Full Manim palette");
 
+  // 8 palette families as columns, 5 shades as rows (A→E top to bottom)
   const palettes: { name: string; colors: IColor[] }[] = [
     { name: "Red",    colors: [RED_A, RED_B, RED_C, RED_D, RED_E] },
     { name: "Blue",   colors: [BLUE_A, BLUE_B, BLUE_C, BLUE_D, BLUE_E] },
@@ -1325,19 +1333,23 @@ const scene = new DemoScene("manim-canvas");
     { name: "Maroon", colors: [MAROON_A, MAROON_B, MAROON_C, MAROON_D, MAROON_E] },
   ];
 
-  const startX = -5.5;
-  const gapX = 1.45;
-  const startY = 3.0;
-  const gapY = -0.95;
+  // Layout: 8 columns × 5 rows of squares, extras as a row of circles below
+  const cols = palettes.length;
+  const swatchSize = 0.85;
+  const gapX = swatchSize + 0.12;
+  const gapY = swatchSize + 0.12;
+  const totalW = (cols - 1) * gapX;
+  const startX = -totalW / 2;
+  const startY = 3.2;
 
-  for (let row = 0; row < palettes.length; row++) {
-    const pal = palettes[row];
-    for (let col = 0; col < pal.colors.length; col++) {
-      const c = pal.colors[col];
+  for (let col = 0; col < cols; col++) {
+    const pal = palettes[col];
+    for (let row = 0; row < pal.colors.length; row++) {
+      const c = pal.colors[row];
       const x = startX + col * gapX;
-      const y = startY + row * gapY;
+      const y = startY - row * gapY;
       const mob = buildShape(Square, {
-        sideLength: 1.1,
+        sideLength: swatchSize,
         fillColor: c,
         fillOpacity: 0.9,
         strokeColor: WHITE,
@@ -1345,36 +1357,28 @@ const scene = new DemoScene("manim-canvas");
         strokeWidth: 2,
         _shift: [x, y, 0],
       });
-      scene.queueGrow(mob, 0.15);
+      scene.queueGrow(mob, 0.1);
     }
   }
 
-  // Extra colors on the right
-  const extras: { color: IColor; name: string }[] = [
-    { color: PINK, name: "Pink" },
-    { color: ORANGE, name: "Orange" },
-    { color: LIGHT_BROWN, name: "Light Brown" },
-    { color: DARK_BROWN, name: "Dark Brown" },
-    { color: WHITE, name: "White" },
-    { color: GRAY_A, name: "Gray A" },
-    { color: GRAY_B, name: "Gray B" },
-    { color: GRAY_C, name: "Gray C" },
-  ];
+  // Extra colors as a row of circles at the bottom
+  const extras: IColor[] = [PINK, ORANGE, LIGHT_BROWN, DARK_BROWN, WHITE, GRAY_A, GRAY_B, GRAY_C];
+  const extrasGap = totalW / (extras.length - 1);
+  const extrasY = startY - 5 * gapY - 0.3;
   for (let i = 0; i < extras.length; i++) {
-    const x = startX + 5 * gapX + 1.5;
-    const y = startY + i * gapY;
+    const x = startX + i * extrasGap;
     const mob = buildShape(Circle, {
-      radius: 0.45,
-      fillColor: extras[i].color,
+      radius: 0.35,
+      fillColor: extras[i],
       fillOpacity: 0.9,
       strokeColor: WHITE,
       strokeOpacity: 0.3,
-      _shift: [x, y, 0],
+      _shift: [x, extrasY, 0],
     });
-    scene.queueGrow(mob, 0.15);
+    scene.queueGrow(mob, 0.1);
   }
 
-  log(`  → ${palettes.length * 5 + extras.length} color swatches`);
+  log(`  → ${cols * 5 + extras.length} color swatches`);
   scene.play();
 };
 
@@ -1382,25 +1386,61 @@ const scene = new DemoScene("manim-canvas");
   scene.clearAll();
   log("Colors: Gradient row (red → blue, 20 steps)");
   const steps = 20;
+  const lc = (a: number, b: number, t: number) => a * (1 - t) + b * t;
+
+  function makeGradientRow(from: IColor, to: IColor, y: number) {
+    for (let i = 0; i < steps; i++) {
+      const t = i / (steps - 1);
+      const color: IColor = { r: lc(from.r, to.r, t), g: lc(from.g, to.g, t), b: lc(from.b, to.b, t), a: 1 };
+      const x = -6 + (12 * i) / (steps - 1);
+      const mob = buildShape(Square, {
+        sideLength: 0.55,
+        fillColor: color,
+        fillOpacity: 0.9,
+        strokeColor: color,
+        strokeOpacity: 1,
+        _shift: [x, y, 0],
+      });
+      scene.queueGrow(mob, 0.05);
+    }
+  }
+
+  // 6 gradient rows: various color transitions
+  makeGradientRow(RED, BLUE, 2.8);
+  makeGradientRow(RED, YELLOW, 1.8);
+  makeGradientRow(YELLOW, GREEN, 0.8);
+  makeGradientRow(GREEN, TEAL, -0.2);
+  makeGradientRow(BLUE, PURPLE, -1.2);
+  makeGradientRow(PURPLE, PINK, -2.2);
+
+  // Rainbow row at the bottom — cycles through all hues
   for (let i = 0; i < steps; i++) {
-    const t = i / (steps - 1);
-    const color: IColor = {
-      r: RED.r * (1 - t) + BLUE.r * t,
-      g: RED.g * (1 - t) + BLUE.g * t,
-      b: RED.b * (1 - t) + BLUE.b * t,
-      a: 1,
-    };
-    const x = -6 + (12 * i) / (steps - 1);
+    const hue = (i / steps) * 360;
+    const s = 0.8, l = 0.55;
+    // HSL to RGB
+    const c = (1 - Math.abs(2 * l - 1)) * s;
+    const x2 = c * (1 - Math.abs((hue / 60) % 2 - 1));
+    const m = l - c / 2;
+    let rr = 0, gg = 0, bb = 0;
+    if (hue < 60)       { rr = c; gg = x2; }
+    else if (hue < 120) { rr = x2; gg = c; }
+    else if (hue < 180) { gg = c; bb = x2; }
+    else if (hue < 240) { gg = x2; bb = c; }
+    else if (hue < 300) { rr = x2; bb = c; }
+    else                { rr = c; bb = x2; }
+    const color: IColor = { r: rr + m, g: gg + m, b: bb + m, a: 1 };
+    const px = -6 + (12 * i) / (steps - 1);
     const mob = buildShape(Square, {
       sideLength: 0.55,
       fillColor: color,
       fillOpacity: 0.9,
       strokeColor: color,
       strokeOpacity: 1,
-      _shift: [x, 0, 0],
+      _shift: [px, -3.2, 0],
     });
-    scene.queueGrow(mob, 0.1);
+    scene.queueGrow(mob, 0.05);
   }
+
   scene.play();
 };
 
