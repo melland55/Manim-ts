@@ -1,0 +1,48 @@
+{
+  "name": "manim-ts",
+  "version": "0.1.0",
+  "description": "TypeScript port of Manim (Mathematical Animation Engine)",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "analyze": "python3 scripts/analyze-deps.py",
+    "orchestrate": "npx tsx src/orchestrator.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "demo": "vite",
+    "demo:build": "vite build",
+    "docs": "cd docs && npm start",
+    "docs:build": "cd docs && npm run build"
+  },
+  "dependencies": {
+    "@mapbox/polylabel": "^1.0.2",
+    "@napi-rs/canvas": "^0.1.97",
+    "bezier-js": "^6.1.4",
+    "cheerio": "^1.2.0",
+    "chokidar": "^5.0.0",
+    "convex-hull": "^1.0.3",
+    "earcut": "^3.0.2",
+    "fluent-ffmpeg": "^2.1.3",
+    "gl-matrix": "^3.4.3",
+    "graphology": "^0.26.0",
+    "highlight.js": "^11.11.1",
+    "isosurface": "^1.0.0",
+    "katex": "^0.16.45",
+    "numpy-ts": "^1.2.0",
+    "polygon-clipping": "^0.15.7",
+    "sharp": "^0.34.5",
+    "svg-path-commander": "^2.2.1"
+  },
+  "devDependencies": {
+    "@types/earcut": "^3.0.0",
+    "@types/fluent-ffmpeg": "^2.1.28",
+    "@types/katex": "^0.16.8",
+    "@types/node": "^22.0.0",
+    "graphology-types": "^0.24.8",
+    "tsx": "^4.16.0",
+    "typescript": "^5.5.0",
+    "vite": "^5.4.21",
+    "vitest": "^2.0.0"
+  }
+}

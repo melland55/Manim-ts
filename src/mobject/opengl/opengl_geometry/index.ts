@@ -1,0 +1,55 @@
+/**
+ * Barrel export for mobject.opengl.opengl_geometry module.
+ * TypeScript port of manim/mobject/opengl/opengl_geometry.py
+ */
+
+export {
+  OpenGLTipableVMobject,
+  OpenGLArc,
+  OpenGLArcBetweenPoints,
+  OpenGLCurvedArrow,
+  OpenGLCurvedDoubleArrow,
+  OpenGLCircle,
+  OpenGLDot,
+  OpenGLEllipse,
+  OpenGLAnnularSector,
+  OpenGLSector,
+  OpenGLAnnulus,
+  OpenGLLine,
+  OpenGLDashedLine,
+  OpenGLTangentLine,
+  OpenGLElbow,
+  OpenGLArrow,
+  OpenGLVector,
+  OpenGLDoubleArrow,
+  OpenGLCubicBezier,
+  OpenGLPolygon,
+  OpenGLRegularPolygon,
+  OpenGLTriangle,
+  OpenGLArrowTip,
+  OpenGLRectangle,
+  OpenGLSquare,
+  OpenGLRoundedRectangle,
+} from "./opengl_geometry.js";
+
+export type {
+  OpenGLTipableVMobjectOptions,
+  OpenGLArcOptions,
+  OpenGLArcBetweenPointsOptions,
+  OpenGLCircleOptions,
+  OpenGLDotOptions,
+  OpenGLEllipseOptions,
+  OpenGLAnnularSectorOptions,
+  OpenGLLineOptions,
+  OpenGLDashedLineOptions,
+  OpenGLTangentLineOptions,
+  OpenGLElbowOptions,
+  OpenGLArrowOptions,
+  OpenGLVectorOptions,
+  OpenGLPolygonOptions,
+  OpenGLRegularPolygonOptions,
+  OpenGLArrowTipOptions,
+  OpenGLRectangleOptions,
+  OpenGLSquareOptions,
+  OpenGLRoundedRectangleOptions,
+} from "./opengl_geometry.js";
