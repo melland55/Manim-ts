@@ -65,6 +65,70 @@ See the [examples](demo/) for more.
 - **Composition** — AnimationGroup, Succession, LaggedStart, LaggedStartMap
 - **Export** — Video export via ffmpeg, server-side rendering via Node.js
 - **Graphs & Tables** — Network graphs, Matrix, Table
+- **Interactive Playback** *(opt-in)* — Scrubbable timeline, play/pause/seek, speed control, loop
+- **Pointer Events** *(opt-in)* — `mobject.on("click" | "hover" | "drag" | ...)` with canvas hit-testing
+- **Framework Wrappers** — Drop-in `<ManimScene>` component for React and Vue
+
+## Interactive Playback & Events
+
+Any scene can opt in to a scrubbable timeline and pointer events — without changing its animation code.
+
+```typescript
+import { Scene, Circle, Create, BLUE, TimelineControls } from "manim-ts";
+
+class Demo extends Scene {
+  async construct() {
+    const circle = new Circle({ color: BLUE });
+    circle.on("click", (e) => console.log("clicked at", e.sceneX, e.sceneY));
+    await this.play(new Create(circle));
+  }
+}
+
+const scene = new Demo({
+  canvas: document.getElementById("c") as HTMLCanvasElement,
+  playback: true,     // enable timeline recording + seek
+  interactive: true,  // enable mobject.on(...) events
+});
+await scene.render();
+
+// Drop-in play/pause/scrubber UI
+new TimelineControls(scene.playback, document.getElementById("controls")!);
+
+// Or programmatic control
+scene.playback.seek(1.5);
+scene.playback.setSpeed(2);
+scene.playback.play();
+```
+
+All three flags are **opt-in** — regular scenes pay zero runtime cost. See [Interactive Playback Guide](docs/docs/guides/interactive-playback.md) and [Pointer Events Guide](docs/docs/guides/pointer-events.md).
+
+### React
+
+```tsx
+import { ManimScene } from "manim-ts/react";
+
+<ManimScene
+  sceneClass={Demo}
+  controls        // shows play/pause/scrubber
+  playback
+  interactive
+  width={800}
+  height={450}
+/>
+```
+
+### Vue
+
+```vue
+<script setup>
+import { ManimScene } from "manim-ts/vue";
+import { Demo } from "./demo";
+</script>
+
+<template>
+  <ManimScene :scene-class="Demo" controls playback interactive :width="800" :height="450" />
+</template>
+```
 
 ## Python to TypeScript
 

@@ -64,6 +64,8 @@ const sidebars: SidebarsConfig = {
             "api-reference/scenes/scene",
             "api-reference/scenes/camera",
             "api-reference/scenes/renderer",
+            "api-reference/scenes/timeline",
+            "api-reference/scenes/interaction",
           ],
         },
         {
@@ -89,6 +91,9 @@ const sidebars: SidebarsConfig = {
         "guides/architecture",
         "guides/conversion",
         "guides/browser-usage",
+        "guides/interactive-playback",
+        "guides/pointer-events",
+        "guides/react-vue",
       ],
     },
   ],

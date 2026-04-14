@@ -57,6 +57,47 @@ interface SceneOptions {
 | `skipAnimations` | `false` | If true, animations are skipped (useful for testing) |
 | `alwaysUpdateMobjects` | `false` | If true, all mobjects update every frame even outside animations |
 | `randomSeed` | `undefined` | Seed for deterministic random behavior |
+| `frameRate` | `30` | Target frame rate for animation playback |
+| `playback` | `false` | **Additive.** Enable timeline recording + `scene.playback.*` API. See [Interactive Playback](/docs/guides/interactive-playback) |
+| `interactive` | `false` | **Additive.** Enable `mobject.on(...)` pointer events + `scene.mobjectAt()`. See [Pointer Events](/docs/guides/pointer-events) |
+| `canvas` | `null` | **Additive.** Canvas element; required for interactive mode |
+
+## Additive APIs
+
+These features are additive and opt-in — they have **no effect** when their flag is not passed, preserving 1-to-1 Python Manim behavior by default.
+
+### `scene.playback` — Timeline Access
+
+```ts
+get playback(): Timeline  // throws if `playback: false`
+get playbackEnabled: boolean
+```
+
+When `playback: true` is passed, the scene records every `play()` and `wait()` call into a `Timeline` object supporting `seek(t)`, `play()`, `pause()`, `resume()`, `setSpeed(x)`, `setLoop(bool)`, and event subscriptions.
+
+```ts
+const scene = new MyScene({ playback: true });
+await scene.render();
+scene.playback.seek(2.5);
+scene.playback.play();
+scene.playback.on("tick", (p) => updateUI(p.time, p.duration));
+```
+
+### `scene.mobjectAt(x, y)` — Hit Testing
+
+Find the top-most mobject at scene coordinates `(x, y)`. Returns `null` if nothing hit, or if `interactive: false`.
+
+```ts
+const mob = scene.mobjectAt(1.2, -0.4);
+```
+
+### `scene.attachCanvas(canvas)` — Late Canvas Binding
+
+Attach a canvas after construction — useful when it isn't known at Scene construction time (e.g., React `useRef`).
+
+### `scene.canvas` / `scene.pointerDispatcher`
+
+Read-only accessors to the attached canvas and pointer dispatcher (or `null` when not enabled).
 
 ## Key Methods
 

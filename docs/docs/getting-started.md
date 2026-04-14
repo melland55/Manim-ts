@@ -140,8 +140,26 @@ const circle = new Circle({
 });
 ```
 
+## Interactive Features (opt-in)
+
+manim-ts adds three optional capabilities on top of Python Manim parity. All three are off by default — enable only what you need.
+
+```typescript
+const scene = new MyScene({
+  canvas,
+  playback: true,     // scrubbable timeline + scene.playback.* API
+  interactive: true,  // mobject.on("click" | "hover" | "drag" | ...)
+});
+```
+
+- **Playback & Seek** — [Interactive Playback Guide](/docs/guides/interactive-playback)
+- **Pointer Events** — [Pointer Events Guide](/docs/guides/pointer-events)
+- **React / Vue** — [Framework Integrations](/docs/guides/react-vue)
+
 ## What's Next
 
 - **[Browser Usage Guide](/docs/guides/browser-usage)** — Set up manim-ts with Vite, interactive demos, and performance tips.
-- **[Guides](/docs/category/guides)** — In-depth tutorials on animations, custom Mobjects, and more.
+- **[Interactive Playback](/docs/guides/interactive-playback)** — Scrubbable timeline, play/pause/seek.
+- **[Pointer Events](/docs/guides/pointer-events)** — `mobject.on(...)` events and hit-testing.
+- **[React & Vue](/docs/guides/react-vue)** — Drop-in framework components.
 - **[API Reference](/docs/category/api-reference)** — Full class and method documentation.
