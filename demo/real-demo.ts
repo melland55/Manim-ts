@@ -9,7 +9,7 @@
  */
 
 import { Circle, Square, Triangle, RegularPolygon, Line, Arc, Polygon } from "../src/mobject/geometry/index.js";
-import { np, TAU, PI } from "../src/core/math/index.js";
+import { np, TAU, PI, UP, DOWN, LEFT, RIGHT, ORIGIN, DEGREES } from "../src/core/math/index.js";
 import {
   RED, RED_A, RED_B, RED_C, RED_D, RED_E,
   BLUE, BLUE_A, BLUE_B, BLUE_C, BLUE_D, BLUE_E,
@@ -24,6 +24,43 @@ import {
 } from "../src/core/color/index.js";
 import type { IColor } from "../src/core/types.js";
 import { VMobject } from "../src/mobject/types/index.js";
+
+// Arrows & Lines
+import { Arrow, DoubleArrow, DashedLine, Vector, Elbow } from "../src/mobject/geometry/line/index.js";
+
+// Arc variants
+import { Dot, Ellipse, ArcBetweenPoints, Sector, AnnularSector, Annulus, CurvedArrow } from "../src/mobject/geometry/arc/index.js";
+
+// Polygram extras
+import { Star, Rectangle, RoundedRectangle } from "../src/mobject/geometry/polygram/index.js";
+
+// Arrow tips
+import { ArrowTriangleFilledTip, ArrowCircleFilledTip, ArrowSquareFilledTip, StealthTip } from "../src/mobject/geometry/tips/index.js";
+
+// Boolean ops
+import { Union, Intersection, Difference, Exclusion } from "../src/mobject/geometry/boolean_ops/index.js";
+
+// Shape matchers
+import { SurroundingRectangle, BackgroundRectangle, Cross, Underline } from "../src/mobject/geometry/shape_matchers/index.js";
+
+// Braces
+import { Brace, BraceBetweenPoints } from "../src/mobject/svg/index.js";
+
+// Graphing
+import { Axes, NumberLine, ParametricFunction, FunctionGraph, NumberPlane, BarChart } from "../src/mobject/graphing/index.js";
+
+// 3D shapes
+import { Sphere, Cube, Cone, Cylinder, Torus, Dot3D } from "../src/mobject/three_d/index.js";
+import { Tetrahedron, Octahedron, Icosahedron, Dodecahedron } from "../src/mobject/three_d/index.js";
+
+// Graph theory
+import { Graph, DiGraph } from "../src/mobject/graph/index.js";
+
+// Vector fields
+import { ArrowVectorField, StreamLines } from "../src/mobject/vector_field/index.js";
+
+// Value tracker
+import { ValueTracker } from "../src/mobject/value_tracker/index.js";
 
 // ── Logging ─────────────────────────────────────────────────
 
@@ -78,6 +115,73 @@ function extractRenderMobject(mob: VMobject, label?: string): RenderMobject {
     center: [Number(c.item(0)), Number(c.item(1)), Number(c.item(2))],
     label,
   };
+}
+
+/**
+ * Recursively extract all VMobject family members from a composite mobject.
+ * Composite objects (Axes, NumberPlane, Graph, etc.) contain sub-VMobjects;
+ * this walks the tree and extracts each one with points as a RenderMobject.
+ *
+ * If a VMobject contains multiple subpaths (e.g. a boolean op that returns
+ * multiple disjoint polygons, or a Brace-style compound shape), we emit one
+ * RenderMobject per subpath — otherwise the renderer draws a continuous
+ * bezier curve between subpaths, which shows up as an unwanted connecting
+ * line/hook.
+ */
+function extractFamily(mob: VMobject, label?: string): RenderMobject[] {
+  const results: RenderMobject[] = [];
+  const pts = mob.points;
+  if (pts.shape[0] > 0) {
+    // Split into subpaths so each disconnected region renders independently.
+    // Some VMobject stubs (e.g. the SVG-module brace stub) don't implement
+    // getSubpaths — fall back to flat extraction in that case.
+    const subpaths =
+      typeof (mob as { getSubpaths?: unknown }).getSubpaths === "function"
+        ? mob.getSubpaths()
+        : [];
+    if (subpaths.length <= 1) {
+      results.push(extractRenderMobject(mob, label));
+    } else {
+      const c = mob.getCenter();
+      const center: Point3 = [
+        Number(c.item(0)),
+        Number(c.item(1)),
+        Number(c.item(2)),
+      ];
+      for (const sp of subpaths) {
+        const spPoints: Point3[] = [];
+        const m = sp.shape[0];
+        for (let i = 0; i < m; i++) {
+          spPoints.push([
+            sp.get([i, 0]) as number,
+            sp.get([i, 1]) as number,
+            sp.get([i, 2]) as number,
+          ]);
+        }
+        results.push({
+          points: spPoints,
+          fillColor: mob.fillColor,
+          fillOpacity: mob.fillOpacity,
+          strokeColor: mob.strokeColor,
+          strokeOpacity: mob.strokeOpacity,
+          strokeWidth: mob.strokeWidth,
+          center,
+          label,
+        });
+      }
+    }
+  }
+  // Recurse into submobjects (if this mobject exposes them)
+  const subs = (mob as { submobjects?: unknown }).submobjects;
+  if (Array.isArray(subs)) {
+    for (const sub of subs) {
+      // Duck-type: any object with a `.points` NDArray is treatable as a VMobject here.
+      if (sub && typeof sub === "object" && "points" in sub) {
+        results.push(...extractFamily(sub as VMobject));
+      }
+    }
+  }
+  return results;
 }
 
 /** Bounding box center — midpoint of min/max across all points. Matches Manim's getCenter(). */
@@ -410,7 +514,7 @@ function shiftPoints(points: Point3[], dx: number, dy: number): Point3[] {
 
 // ── Scene with animation queue ───────────────────────────────
 
-type AnimType = "create" | "grow" | "fadeIn" | "fadeOut" | "rotate" | "transform" | "shift";
+type AnimType = "create" | "grow" | "fadeIn" | "fadeOut" | "rotate" | "transform" | "shift" | "spinIn" | "indicate";
 
 interface AnimState {
   type: AnimType;
@@ -558,6 +662,24 @@ class DemoScene {
     });
   }
 
+  /** SpinInFromNothing — scale + rotate simultaneously from center */
+  queueSpinIn(mob: RenderMobject, duration = 1.0, growCenter?: Point3): void {
+    const fullPts = [...mob.points];
+    this.animQueue.push(() => {
+      const center = growCenter ?? mob.center;
+      mob.points = scaleFromCenter(fullPts, center, 0);
+      this.add(mob);
+      return { type: "spinIn", mob, fullPoints: fullPts, startTime: performance.now(), duration, done: false, growCenter: center, totalAngle: TAU };
+    });
+  }
+
+  /** Indicate — briefly scale up then back to original */
+  queueIndicate(mob: RenderMobject, duration = 0.8, scaleFactor = 1.3): void {
+    this.animQueue.push(() => {
+      return { type: "indicate", mob, fullPoints: [...mob.points], startTime: performance.now(), duration, done: false, totalAngle: scaleFactor };
+    });
+  }
+
   queueWait(duration = 0.5): void {
     this.animQueue.push(() => {
       return { type: "create", mob: { points: [], fillColor: WHITE, fillOpacity: 0, strokeColor: WHITE, strokeOpacity: 0, strokeWidth: 0, center: [0, 0, 0] }, fullPoints: [], startTime: performance.now(), duration, done: false };
@@ -651,6 +773,21 @@ class DemoScene {
         a.mob.center = [oc[0] + dx, oc[1] + dy, oc[2]];
         break;
       }
+      case "spinIn": {
+        // Scale up from 0 to 1 AND rotate simultaneously
+        const center = a.growCenter ?? a.mob.center;
+        const angle = t * (a.totalAngle ?? TAU);
+        const scaled = scaleFromCenter(a.fullPoints, center, t);
+        a.mob.points = rotatePoints(scaled, center, angle);
+        break;
+      }
+      case "indicate": {
+        // Scale up to scaleFactor then back down (pulse effect)
+        const factor = a.totalAngle ?? 1.3; // reuse totalAngle for scaleFactor
+        const pulse = t < 0.5 ? 1 + (factor - 1) * (t * 2) : 1 + (factor - 1) * (2 - t * 2);
+        a.mob.points = scaleFromCenter(a.fullPoints, a.mob.center, pulse);
+        break;
+      }
     }
 
     if (rawT >= 1) {
@@ -687,7 +824,13 @@ class DemoScene {
 // ── Build shapes using the REAL engine, then extract ─────────
 
 function buildShape(EngineClass: any, opts: any, label?: string): RenderMobject {
-  const mob = new EngineClass(opts) as VMobject;
+  // Some engine classes (e.g. RegularPolygon, Star) take `n` as the first
+  // positional arg. Extract it from opts so the demo can use a single
+  // options-bag convention.
+  const { n, ...rest } = opts;
+  const mob = (n !== undefined
+    ? new EngineClass(n, rest)
+    : new EngineClass(rest)) as VMobject;
   if (opts._shift) mob.shift(np.array(opts._shift));
   if (opts._scale) mob.scale(opts._scale);
   if (opts._rotate) mob.rotate(opts._rotate);
@@ -968,7 +1111,7 @@ const scene = new DemoScene("manim-canvas");
   mob1.rotate(PI / 6);
   const r1 = extractRenderMobject(mob1, "Shifted+Scaled+Rotated");
 
-  const mob2 = new RegularPolygon({ n: 6, radius: 1.0, fillColor: TEAL, fillOpacity: 0.5, strokeColor: TEAL, strokeOpacity: 1 }) as VMobject;
+  const mob2 = new RegularPolygon(6, { radius: 1.0, fillColor: TEAL, fillOpacity: 0.5, strokeColor: TEAL, strokeOpacity: 1 }) as VMobject;
   mob2.shift(np.array([3, 0, 0]));
   mob2.scale(2.0);
   mob2.rotate(-PI / 4);
@@ -998,6 +1141,76 @@ const scene = new DemoScene("manim-canvas");
 };
 
 // ── ANIMATION TESTS ──────────────────────────────────────────
+
+/** Build the standard 3-row shape set (same as Create page), centered by geometric centroid.
+ *  Returns all shapes positioned and ready to animate. */
+function buildStandardShapes(): RenderMobject[] {
+  const row1Y = 2, row2Y = -0.3, row3Y = -2.5;
+  const xPositions = [-5, -2.5, 0, 2.5, 5];
+
+  function shiftToCenter(mob: RenderMobject, targetX: number, targetY: number, useBBox: boolean) {
+    const center = useBBox ? boundingBoxCenter(mob.points) : geometricCentroid(mob.points);
+    const dx = targetX - center[0];
+    const dy = targetY - center[1];
+    mob.points = mob.points.map(([x, y, z]) => [x + dx, y + dy, z] as Point3);
+    mob.center = [mob.center[0] + dx, mob.center[1] + dy, mob.center[2]];
+  }
+  const isArc = (label: string) => label === "Arc" || label === "Pacman";
+
+  // Row 1: Circle, Square, Triangle, Arc, Pacman
+  const pacVerts: number[][] = [[0, 0, 0]];
+  for (let i = 0; i <= 20; i++) {
+    const a = PI / 6 + (i / 20) * (TAU - 2 * PI / 6);
+    pacVerts.push([0.8 * Math.cos(a), 0.8 * Math.sin(a), 0]);
+  }
+  const pacMob = new Polygon(pacVerts.map(v => np.array(v)), { fillColor: YELLOW, fillOpacity: 0.7, strokeColor: YELLOW, strokeOpacity: 1, strokeWidth: 3 }) as VMobject;
+
+  const row1: RenderMobject[] = [
+    buildShape(Circle,         { radius: 0.8,     fillColor: BLUE,   fillOpacity: 0.5, strokeColor: BLUE,   strokeOpacity: 1 }, "Circle"),
+    buildShape(Square,         { sideLength: 1.5,  fillColor: GREEN,  fillOpacity: 0.5, strokeColor: GREEN,  strokeOpacity: 1 }, "Square"),
+    buildShape(Triangle,       { radius: 0.8,     fillColor: YELLOW, fillOpacity: 0.5, strokeColor: YELLOW, strokeOpacity: 1 }, "Triangle"),
+    buildShape(Arc,            { radius: 0.8, angle: TAU * 0.75, strokeColor: TEAL, strokeOpacity: 1, fillColor: TEAL, fillOpacity: 0.3, strokeWidth: 3 }, "Arc"),
+    extractRenderMobject(pacMob, "Pacman"),
+  ];
+
+  // Row 2: Pentagon, Hexagon, Heptagon, Octagon, Decagon
+  const row2: RenderMobject[] = [
+    buildShape(RegularPolygon, { n: 5, radius: 0.8, fillColor: RED,    fillOpacity: 0.5, strokeColor: RED,    strokeOpacity: 1 }, "Pentagon"),
+    buildShape(RegularPolygon, { n: 6, radius: 0.8, fillColor: PURPLE, fillOpacity: 0.5, strokeColor: PURPLE, strokeOpacity: 1 }, "Hexagon"),
+    buildShape(RegularPolygon, { n: 7, radius: 0.8, fillColor: ORANGE, fillOpacity: 0.5, strokeColor: ORANGE, strokeOpacity: 1 }, "Heptagon"),
+    buildShape(RegularPolygon, { n: 8, radius: 0.8, fillColor: MAROON, fillOpacity: 0.5, strokeColor: MAROON, strokeOpacity: 1 }, "Octagon"),
+    buildShape(RegularPolygon, { n: 10, radius: 0.8, fillColor: PINK,  fillOpacity: 0.5, strokeColor: PINK,  strokeOpacity: 1 }, "Decagon"),
+  ];
+
+  // Row 3: Line, Diamond, Star
+  const row3: RenderMobject[] = [];
+  row3.push(buildLine({ start: np.array([-0.5, 0, 0]), end: np.array([2.5, 0, 0]), strokeColor: WHITE, strokeOpacity: 1, strokeWidth: 3 }, "Line"));
+
+  const diamondVerts = [[-0.8, 0, 0], [0, 0.8, 0], [0.8, 0, 0], [0, -0.8, 0]].map(v => np.array(v));
+  const diamond = new Polygon(diamondVerts, { fillColor: TEAL, fillOpacity: 0.5, strokeColor: TEAL, strokeOpacity: 1, strokeWidth: 3 }) as VMobject;
+  row3.push(extractRenderMobject(diamond, "Diamond"));
+
+  const starVerts: number[][] = [];
+  for (let i = 0; i < 10; i++) {
+    const angle = (i / 10) * TAU - PI / 2;
+    const r = i % 2 === 0 ? 0.8 : 0.4;
+    starVerts.push([r * Math.cos(angle), r * Math.sin(angle), 0]);
+  }
+  const starMob = new Polygon(starVerts.map(v => np.array(v)), { fillColor: GOLD, fillOpacity: 0.5, strokeColor: GOLD, strokeOpacity: 1, strokeWidth: 3 }) as VMobject;
+  row3.push(extractRenderMobject(starMob, "Star"));
+
+  // Position all shapes by geometric centroid
+  const row3X = [-3, 0, 3.5];
+  const shapes: RenderMobject[] = [];
+  for (let i = 0; i < row1.length; i++) { shiftToCenter(row1[i], xPositions[i], row1Y, isArc(row1[i].label ?? "")); shapes.push(row1[i]); }
+  for (let i = 0; i < row2.length; i++) { shiftToCenter(row2[i], xPositions[i], row2Y, isArc(row2[i].label ?? "")); shapes.push(row2[i]); }
+  for (let i = 0; i < row3.length; i++) { shiftToCenter(row3[i], row3X[i], row3Y, isArc(row3[i].label ?? "")); shapes.push(row3[i]); }
+
+  // Close arc paths
+  for (const s of shapes) if (s.label === "Arc") s.forceClose = true;
+
+  return shapes;
+}
 
 (window as any).animCreate = () => {
   scene.clearAll();
@@ -1062,73 +1275,8 @@ const scene = new DemoScene("manim-canvas");
 (window as any).animGrow = () => {
   scene.clearAll();
   log("Animation: GrowFromCenter");
-
-  const row1Y = 2, row2Y = -0.3, row3Y = -2.5;
-  const xPositions = [-5, -2.5, 0, 2.5, 5];
-
-  // Shift shape so its geometric centroid (or bbox for arcs) lands at target position
-  function shiftToCenter(mob: RenderMobject, targetX: number, targetY: number, useBBox: boolean) {
-    const center = useBBox ? boundingBoxCenter(mob.points) : geometricCentroid(mob.points);
-    const dx = targetX - center[0];
-    const dy = targetY - center[1];
-    mob.points = mob.points.map(([x, y, z]) => [x + dx, y + dy, z] as Point3);
-    mob.center = [mob.center[0] + dx, mob.center[1] + dy, mob.center[2]];
-  }
   const isArcShape = (label: string) => label === "Arc" || label === "Pacman";
-
-  // Row 1: Circle, Square, Triangle, Arc, Pacman
-  const pacR = 0.8, mouthAngle = PI / 6;
-  const pacVerts: number[][] = [[0, 0, 0]];
-  for (let i = 0; i <= 20; i++) {
-    const a = mouthAngle + (i / 20) * (TAU - 2 * mouthAngle);
-    pacVerts.push([pacR * Math.cos(a), pacR * Math.sin(a), 0]);
-  }
-  const pacMob = new Polygon(pacVerts.map(v => np.array(v)), { fillColor: YELLOW, fillOpacity: 0.7, strokeColor: YELLOW, strokeOpacity: 1, strokeWidth: 3 }) as VMobject;
-
-  const row1: RenderMobject[] = [
-    buildShape(Circle,         { radius: 0.8,     fillColor: BLUE,   fillOpacity: 0.5, strokeColor: BLUE,   strokeOpacity: 1 }, "Circle"),
-    buildShape(Square,         { sideLength: 1.5,  fillColor: GREEN,  fillOpacity: 0.5, strokeColor: GREEN,  strokeOpacity: 1 }, "Square"),
-    buildShape(Triangle,       { radius: 0.8,     fillColor: YELLOW, fillOpacity: 0.5, strokeColor: YELLOW, strokeOpacity: 1 }, "Triangle"),
-    buildShape(Arc,            { radius: 0.8, angle: TAU * 0.75, strokeColor: TEAL, strokeOpacity: 1, fillColor: TEAL, fillOpacity: 0.3, strokeWidth: 3 }, "Arc"),
-    extractRenderMobject(pacMob, "Pacman"),
-  ];
-
-  // Row 2: Pentagon, Hexagon, Heptagon, Octagon, Decagon
-  const row2: RenderMobject[] = [
-    buildShape(RegularPolygon, { n: 5, radius: 0.8, fillColor: RED,    fillOpacity: 0.5, strokeColor: RED,    strokeOpacity: 1 }, "Pentagon"),
-    buildShape(RegularPolygon, { n: 6, radius: 0.8, fillColor: PURPLE, fillOpacity: 0.5, strokeColor: PURPLE, strokeOpacity: 1 }, "Hexagon"),
-    buildShape(RegularPolygon, { n: 7, radius: 0.8, fillColor: ORANGE, fillOpacity: 0.5, strokeColor: ORANGE, strokeOpacity: 1 }, "Heptagon"),
-    buildShape(RegularPolygon, { n: 8, radius: 0.8, fillColor: MAROON, fillOpacity: 0.5, strokeColor: MAROON, strokeOpacity: 1 }, "Octagon"),
-    buildShape(RegularPolygon, { n: 10, radius: 0.8, fillColor: PINK,  fillOpacity: 0.5, strokeColor: PINK,  strokeOpacity: 1 }, "Decagon"),
-  ];
-
-  // Row 3: Line, Diamond, Star
-  const row3: RenderMobject[] = [];
-  row3.push(buildLine({ start: np.array([-0.5, 0, 0]), end: np.array([2.5, 0, 0]), strokeColor: WHITE, strokeOpacity: 1, strokeWidth: 3 }, "Line"));
-
-  const diamondVerts = [[-0.8, 0, 0], [0, 0.8, 0], [0.8, 0, 0], [0, -0.8, 0]].map(v => np.array(v));
-  const diamond = new Polygon(diamondVerts, { fillColor: TEAL, fillOpacity: 0.5, strokeColor: TEAL, strokeOpacity: 1, strokeWidth: 3 }) as VMobject;
-  row3.push(extractRenderMobject(diamond, "Diamond"));
-
-  const starVerts: number[][] = [];
-  for (let i = 0; i < 10; i++) {
-    const angle = (i / 10) * TAU - PI / 2;
-    const r = i % 2 === 0 ? 0.8 : 0.4;
-    starVerts.push([r * Math.cos(angle), r * Math.sin(angle), 0]);
-  }
-  const starMob = new Polygon(starVerts.map(v => np.array(v)), { fillColor: GOLD, fillOpacity: 0.5, strokeColor: GOLD, strokeOpacity: 1, strokeWidth: 3 }) as VMobject;
-  row3.push(extractRenderMobject(starMob, "Star"));
-
-  // Position all shapes by geometric centroid
-  const row3X = [-3, 0, 3.5];
-  const shapes: RenderMobject[] = [];
-  for (let i = 0; i < row1.length; i++) { shiftToCenter(row1[i], xPositions[i], row1Y, isArcShape(row1[i].label ?? "")); shapes.push(row1[i]); }
-  for (let i = 0; i < row2.length; i++) { shiftToCenter(row2[i], xPositions[i], row2Y, isArcShape(row2[i].label ?? "")); shapes.push(row2[i]); }
-  for (let i = 0; i < row3.length; i++) { shiftToCenter(row3[i], row3X[i], row3Y, isArcShape(row3[i].label ?? "")); shapes.push(row3[i]); }
-
-  // Close arc paths so they render as a circle with a slice cut out
-  for (const s of shapes) if (s.label === "Arc") s.forceClose = true;
-
+  const shapes = buildStandardShapes();
   for (const s of shapes) {
     const center = isArcShape(s.label ?? "") ? boundingBoxCenter(s.points) : geometricCentroid(s.points);
     scene.queueGrow(s, 0.6, center);
@@ -1137,51 +1285,32 @@ const scene = new DemoScene("manim-canvas");
   scene.play();
 };
 
-(window as any).animFadeIn = () => {
+(window as any).animFade = () => {
   scene.clearAll();
-  log("Animation: FadeIn (opacity interpolation)");
-  const c = buildShape(Circle, { radius: 2.0, fillColor: BLUE, fillOpacity: 0.6, strokeColor: BLUE, strokeOpacity: 1 });
-  scene.queueFadeIn(c, 2.0);
-  scene.play();
-};
-
-(window as any).animFadeOut = () => {
-  scene.clearAll();
-  log("Animation: FadeOut — grow in, then fade out");
-  const c = buildShape(Circle, { radius: 2.0, fillColor: RED, fillOpacity: 0.6, strokeColor: RED, strokeOpacity: 1 });
-  scene.queueGrow(c, 0.8);
-  scene.queueWait(0.5);
-  scene.queueFadeOut(c, 1.5);
+  log("Animation: FadeIn + FadeOut");
+  const shapes = buildStandardShapes();
+  for (const s of shapes) {
+    scene.queueFadeIn(s, 0.8);
+  }
+  scene.queueWait(1.0);
+  for (const s of shapes) {
+    scene.queueFadeOut(s, 0.8);
+  }
   scene.play();
 };
 
 (window as any).animRotate = () => {
   scene.clearAll();
   log("Animation: Rotate — all shapes spinning simultaneously");
-
-  const shapes = [
-    buildShape(Circle,         { radius: 0.8,      fillColor: BLUE,   fillOpacity: 0.5, strokeColor: BLUE,   strokeOpacity: 1, _shift: [-5, 1.8, 0] }),
-    buildShape(Square,         { sideLength: 1.4,   fillColor: GREEN,  fillOpacity: 0.5, strokeColor: GREEN,  strokeOpacity: 1, _shift: [-2.5, 1.8, 0] }),
-    buildShape(Triangle,       { radius: 0.8,      fillColor: YELLOW, fillOpacity: 0.5, strokeColor: YELLOW, strokeOpacity: 1, _shift: [0, 1.8, 0] }),
-    buildShape(RegularPolygon, { n: 5, radius: 0.8, fillColor: RED,    fillOpacity: 0.5, strokeColor: RED,    strokeOpacity: 1, _shift: [2.5, 1.8, 0] }),
-    buildShape(RegularPolygon, { n: 6, radius: 0.8, fillColor: PURPLE, fillOpacity: 0.5, strokeColor: PURPLE, strokeOpacity: 1, _shift: [5, 1.8, 0] }),
-    buildShape(RegularPolygon, { n: 7, radius: 0.8, fillColor: TEAL,   fillOpacity: 0.5, strokeColor: TEAL,   strokeOpacity: 1, _shift: [-5, -1, 0] }),
-    buildShape(RegularPolygon, { n: 8, radius: 0.8, fillColor: ORANGE, fillOpacity: 0.5, strokeColor: ORANGE, strokeOpacity: 1, _shift: [-2.5, -1, 0] }),
-    buildShape(RegularPolygon, { n: 10, radius: 0.8, fillColor: MAROON, fillOpacity: 0.5, strokeColor: MAROON, strokeOpacity: 1, _shift: [0, -1, 0] }),
-    buildShape(RegularPolygon, { n: 12, radius: 0.8, fillColor: PINK,  fillOpacity: 0.5, strokeColor: PINK,  strokeOpacity: 1, _shift: [2.5, -1, 0] }),
-    buildShape(Arc,            { radius: 0.8, angle: TAU * 0.75, strokeColor: GOLD, strokeOpacity: 1, fillColor: GOLD, fillOpacity: 0.3, strokeWidth: 3, _shift: [5, -1, 0] }),
-  ];
-
-  // Close arc paths so they render as a circle with a slice cut out
-  for (const s of shapes) if (s.label === "Arc") s.forceClose = true;
+  const isArcShape = (label: string) => label === "Arc" || label === "Pacman";
+  const shapes = buildStandardShapes();
 
   // Show fixed center dots — geometric centroid for closed polygons, bounding box for arc
-  const arcIndex = shapes.length - 1; // last shape is the arc
-  for (let i = 0; i < shapes.length; i++) {
-    shapes[i].showDot = true;
-    shapes[i].dotPosition = i === arcIndex
-      ? boundingBoxCenter(shapes[i].points)
-      : geometricCentroid(shapes[i].points);
+  for (const s of shapes) {
+    s.showDot = true;
+    s.dotPosition = isArcShape(s.label ?? "")
+      ? boundingBoxCenter(s.points)
+      : geometricCentroid(s.points);
   }
 
   // Add all shapes immediately (no grow animation)
@@ -1192,7 +1321,7 @@ const scene = new DemoScene("manim-canvas");
   // Rotate all shapes — geometric centroid for polygons, bounding box for arc
   for (let i = 0; i < shapes.length; i++) {
     const direction = i % 2 === 0 ? TAU : -TAU;
-    const center = i === arcIndex
+    const center = isArcShape(shapes[i].label ?? "")
       ? boundingBoxCenter(shapes[i].points)
       : geometricCentroid(shapes[i].points);
     scene.animQueue.push(() => {
@@ -1244,6 +1373,57 @@ const scene = new DemoScene("manim-canvas");
     scene.play();
   }
   runTransformLoop();
+};
+
+(window as any).animSpinIn = () => {
+  scene.clearAll();
+  log("Animation: SpinInFromNothing — scale + rotate from center");
+  const isArcShape = (label: string) => label === "Arc" || label === "Pacman";
+  const shapes = buildStandardShapes();
+  for (const s of shapes) {
+    const center = isArcShape(s.label ?? "") ? boundingBoxCenter(s.points) : geometricCentroid(s.points);
+    scene.queueSpinIn(s, 1.0, center);
+    scene.queueWait(0.1);
+  }
+  scene.play();
+};
+
+(window as any).animIndicate = () => {
+  scene.clearAll();
+  log("Animation: Indicate — pulse effect on shapes");
+  const shapes = [
+    buildShape(Circle,         { radius: 1.0, fillColor: BLUE,   fillOpacity: 0.5, strokeColor: BLUE,   strokeOpacity: 1, _shift: [-4, 0, 0] }, "Circle"),
+    buildShape(Square,         { sideLength: 1.8, fillColor: GREEN, fillOpacity: 0.5, strokeColor: GREEN, strokeOpacity: 1, _shift: [-1.3, 0, 0] }, "Square"),
+    buildShape(Triangle,       { radius: 1.0, fillColor: YELLOW, fillOpacity: 0.5, strokeColor: YELLOW, strokeOpacity: 1, _shift: [1.3, 0, 0] }, "Triangle"),
+    buildShape(RegularPolygon, { n: 6, radius: 1.0, fillColor: PURPLE, fillOpacity: 0.5, strokeColor: PURPLE, strokeOpacity: 1, _shift: [4, 0, 0] }, "Hexagon"),
+  ];
+  // First grow them in
+  for (const s of shapes) {
+    scene.queueGrow(s, 0.5);
+  }
+  scene.queueWait(0.3);
+  // Then indicate each one
+  for (const s of shapes) {
+    scene.queueIndicate(s, 0.6, 1.3);
+    scene.queueWait(0.2);
+  }
+  scene.play();
+};
+
+(window as any).animShift = () => {
+  scene.clearAll();
+  log("Animation: Shift — shapes sliding across the screen");
+  const circle = buildShape(Circle, { radius: 1.0, fillColor: BLUE, fillOpacity: 0.5, strokeColor: BLUE, strokeOpacity: 1, _shift: [-5, 1.5, 0] });
+  const square = buildShape(Square, { sideLength: 1.8, fillColor: GREEN, fillOpacity: 0.5, strokeColor: GREEN, strokeOpacity: 1, _shift: [-5, 0, 0] });
+  const tri = buildShape(Triangle, { radius: 1.0, fillColor: YELLOW, fillOpacity: 0.5, strokeColor: YELLOW, strokeOpacity: 1, _shift: [-5, -1.5, 0] });
+  scene.queueGrow(circle, 0.4);
+  scene.queueGrow(square, 0.4);
+  scene.queueGrow(tri, 0.4);
+  scene.queueWait(0.3);
+  scene.queueShift(circle, 10, 0, 1.5);
+  scene.queueShift(square, 10, 0, 1.5);
+  scene.queueShift(tri, 10, 0, 1.5);
+  scene.play();
 };
 
 (window as any).animSequence = () => {
@@ -1480,6 +1660,621 @@ function stressTest(count: number): void {
 (window as any).stress10 = () => stressTest(10);
 (window as any).stress50 = () => stressTest(50);
 (window as any).stress100 = () => stressTest(100);
+
+// ── ARROWS & TIPS ───────────────────────────────────────────
+
+(window as any).testArrows = () => {
+  scene.clearAll();
+  log("Arrows & Tips: Arrow, DoubleArrow, DashedLine, Vector, Elbow");
+
+  try {
+    // Row 1: Arrow variants
+    const arrow = new Arrow(np.array([-6, 2.5, 0]), np.array([-3, 2.5, 0]), { strokeColor: BLUE, strokeOpacity: 1, strokeWidth: 4 }) as VMobject;
+    const dblArrow = new DoubleArrow(np.array([-2, 2.5, 0]), np.array([1, 2.5, 0]), { strokeColor: GREEN, strokeOpacity: 1, strokeWidth: 4 }) as VMobject;
+    const vector = new Vector(np.array([2, 0, 0]), { strokeColor: RED, strokeOpacity: 1, strokeWidth: 4 }) as VMobject;
+    vector.shift(np.array([2.5, 2.5, 0]));
+
+    // Row 2: DashedLine and Elbow
+    const dashedLine = new DashedLine({ start: np.array([-6, 0, 0]), end: np.array([-1, 0, 0]), strokeColor: YELLOW, strokeOpacity: 1, strokeWidth: 3 }) as VMobject;
+    const elbow = new Elbow({ width: 1.5, strokeColor: TEAL, strokeOpacity: 1, strokeWidth: 3 }) as VMobject;
+    elbow.shift(np.array([2, 0, 0]));
+
+    // Row 3: Arrows with different angles
+    const arrow2 = new Arrow(np.array([-5, -2.5, 0]), np.array([-3, -1.5, 0]), { strokeColor: PURPLE, strokeOpacity: 1, strokeWidth: 4 }) as VMobject;
+    const arrow3 = new Arrow(np.array([-1, -2.5, 0]), np.array([1, -1.5, 0]), { strokeColor: ORANGE, strokeOpacity: 1, strokeWidth: 4 }) as VMobject;
+    const arrow4 = new Arrow(np.array([3, -1.5, 0]), np.array([5, -2.5, 0]), { strokeColor: GOLD, strokeOpacity: 1, strokeWidth: 4 }) as VMobject;
+
+    // DashedLine explodes into ~30 submobjects (one per dash). Animating each
+    // sequentially at 0.4s takes ~12s. Use a tiny per-dash duration so the
+    // whole dashed line renders in a fraction of a second.
+    const allMobs = [arrow, dblArrow, vector, elbow, arrow2, arrow3, arrow4];
+    for (const mob of allMobs) {
+      const parts = extractFamily(mob);
+      for (const p of parts) scene.queueGrow(p, 0.4);
+    }
+    const dashParts = extractFamily(dashedLine);
+    for (const p of dashParts) scene.queueGrow(p, 0.02);
+    scene.play();
+  } catch (e) {
+    log(`  ERROR: ${e}`);
+  }
+};
+
+// ── ARCS & CURVES ───────────────────────────────────────────
+
+(window as any).testArcsAndCurves = () => {
+  scene.clearAll();
+  log("Arcs & Curves: Dot, Ellipse, ArcBetweenPoints, Sector, AnnularSector, Annulus");
+
+  try {
+    log("  step 1: Dot"); const dot = new Dot({ point: np.array([-5, 2.5, 0]), fillColor: RED, fillOpacity: 1, strokeColor: RED, strokeOpacity: 1, radius: 0.15 }) as VMobject;
+    log("  step 2: bigDot"); const bigDot = new Dot({ point: np.array([-3.5, 2.5, 0]), fillColor: BLUE, fillOpacity: 1, strokeColor: BLUE, strokeOpacity: 1, radius: 0.3 }) as VMobject;
+    log("  step 3: Ellipse"); const ellipse = new Ellipse({ width: 3, height: 1.5, fillColor: GREEN, fillOpacity: 0.4, strokeColor: GREEN, strokeOpacity: 1 }) as VMobject;
+    ellipse.shift(np.array([0, 2.5, 0]));
+    log("  step 4: ArcBetweenPoints"); const arcBetween = new ArcBetweenPoints(np.array([3, 3, 0]), np.array([6, 2, 0]), { angle: PI / 3, strokeColor: GOLD, strokeOpacity: 1, strokeWidth: 3 }) as VMobject;
+
+    log("  step 5: Sector"); const sector = new Sector({ outerRadius: 1.2, angle: TAU / 3, fillColor: PURPLE, fillOpacity: 0.5, strokeColor: PURPLE, strokeOpacity: 1 }) as VMobject;
+    sector.shift(np.array([-4, -0.5, 0]));
+    log("  step 6: AnnularSector"); const annSector = new AnnularSector({ innerRadius: 0.5, outerRadius: 1.2, angle: TAU / 4, fillColor: TEAL, fillOpacity: 0.5, strokeColor: TEAL, strokeOpacity: 1 }) as VMobject;
+    annSector.shift(np.array([0, -0.5, 0]));
+    log("  step 7: Annulus"); const annulus = new Annulus({ innerRadius: 0.5, outerRadius: 1.2, fillColor: ORANGE, fillOpacity: 0.5, strokeColor: ORANGE, strokeOpacity: 1 }) as VMobject;
+    annulus.shift(np.array([4, -0.5, 0]));
+
+    log("  step 8: CurvedArrow"); const cArrow = new CurvedArrow(np.array([-5, -3, 0]), np.array([-2, -3, 0]), { strokeColor: YELLOW, strokeOpacity: 1, strokeWidth: 3 }) as VMobject;
+    log("  step 9: Arc"); const arc1 = new Arc({ radius: 1, angle: TAU * 0.6, startAngle: PI / 6, strokeColor: PINK, strokeOpacity: 1, strokeWidth: 3 }) as VMobject;
+    arc1.shift(np.array([1, -3, 0]));
+    log("  step 10: Arc"); const arc2 = new Arc({ radius: 0.8, angle: TAU * 0.8, strokeColor: MAROON, strokeOpacity: 1, strokeWidth: 4 }) as VMobject;
+    arc2.shift(np.array([4.5, -3, 0]));
+
+    const allMobs = [dot, bigDot, ellipse, arcBetween, sector, annSector, annulus, cArrow, arc1, arc2];
+    for (const mob of allMobs) {
+      const parts = extractFamily(mob);
+      for (const p of parts) scene.queueGrow(p, 0.3);
+    }
+    scene.play();
+  } catch (e) {
+    log(`  ERROR: ${e}`);
+  }
+};
+
+// ── POLYGRAM EXTRAS ─────────────────────────────────────────
+
+(window as any).testPolygramExtras = () => {
+  scene.clearAll();
+  log("Polygram extras: Star, Rectangle, RoundedRectangle");
+
+  try {
+    // Row 1: Stars with varying points
+    const star5 = new Star(5, { outerRadius: 1.0, fillColor: GOLD, fillOpacity: 0.5, strokeColor: GOLD, strokeOpacity: 1 }) as VMobject;
+    star5.shift(np.array([-5, 2, 0]));
+    const star6 = new Star(6, { outerRadius: 1.0, fillColor: RED, fillOpacity: 0.5, strokeColor: RED, strokeOpacity: 1 }) as VMobject;
+    star6.shift(np.array([-2, 2, 0]));
+    const star7 = new Star(7, { outerRadius: 1.0, fillColor: BLUE, fillOpacity: 0.5, strokeColor: BLUE, strokeOpacity: 1 }) as VMobject;
+    star7.shift(np.array([1, 2, 0]));
+    const star8 = new Star(8, { outerRadius: 1.0, fillColor: PURPLE, fillOpacity: 0.5, strokeColor: PURPLE, strokeOpacity: 1 }) as VMobject;
+    star8.shift(np.array([4, 2, 0]));
+
+    // Row 2: Rectangles
+    const rect = new Rectangle({ width: 3, height: 1.5, fillColor: GREEN, fillOpacity: 0.4, strokeColor: GREEN, strokeOpacity: 1 }) as VMobject;
+    rect.shift(np.array([-4, -0.5, 0]));
+    const roundRect = new RoundedRectangle({ width: 3, height: 1.5, cornerRadius: 0.3, fillColor: TEAL, fillOpacity: 0.4, strokeColor: TEAL, strokeOpacity: 1 }) as VMobject;
+    roundRect.shift(np.array([0, -0.5, 0]));
+    const tallRect = new Rectangle({ width: 1, height: 3, fillColor: ORANGE, fillOpacity: 0.4, strokeColor: ORANGE, strokeOpacity: 1 }) as VMobject;
+    tallRect.shift(np.array([4, -0.5, 0]));
+
+    // Row 3: More stars
+    const star10 = new Star(10, { outerRadius: 1.2, fillColor: PINK, fillOpacity: 0.5, strokeColor: PINK, strokeOpacity: 1 }) as VMobject;
+    star10.shift(np.array([-3, -3, 0]));
+    const star12 = new Star(12, { outerRadius: 1.2, fillColor: MAROON, fillOpacity: 0.5, strokeColor: MAROON, strokeOpacity: 1 }) as VMobject;
+    star12.shift(np.array([3, -3, 0]));
+
+    const allMobs = [star5, star6, star7, star8, rect, roundRect, tallRect, star10, star12];
+    for (const mob of allMobs) {
+      const r = extractRenderMobject(mob);
+      scene.queueGrow(r, 0.3);
+    }
+    scene.play();
+  } catch (e) {
+    log(`  ERROR: ${e}`);
+  }
+};
+
+// ── BOOLEAN OPS ─────────────────────────────────────────────
+
+(window as any).testBooleanOps = () => {
+  scene.clearAll();
+  log("Boolean Ops: Union, Intersection, Difference, Exclusion");
+
+  try {
+    // Boolean results inherit world-space points from their inputs.
+    // Position the INPUT shapes where you want the result to appear —
+    // do NOT shift the result afterward (that double-offsets it offscreen).
+    const twoCircles = (cx: number, cy: number, sep: number) => {
+      const a = new Circle({ radius: 1.0, fillColor: BLUE, fillOpacity: 0.3, strokeColor: BLUE, strokeOpacity: 1 }) as VMobject;
+      a.shift(np.array([cx - sep, cy, 0]));
+      const b = new Circle({ radius: 1.0, fillColor: RED, fillOpacity: 0.3, strokeColor: RED, strokeOpacity: 1 }) as VMobject;
+      b.shift(np.array([cx + sep, cy, 0]));
+      return [a, b] as const;
+    };
+
+    // Row 1: Union, Intersection, Difference, Exclusion
+    const [ua, ub] = twoCircles(-5, 2, 0.5);
+    const u = new Union(ua, ub, { fillColor: GREEN, fillOpacity: 0.5, strokeColor: GREEN, strokeOpacity: 1, strokeWidth: 3 }) as VMobject;
+
+    const [ia, ib] = twoCircles(-1.5, 2, 0.6);
+    const inter = new Intersection(ia, ib, { fillColor: YELLOW, fillOpacity: 0.5, strokeColor: YELLOW, strokeOpacity: 1, strokeWidth: 3 }) as VMobject;
+
+    const dCirc = new Circle({ radius: 1.0, fillColor: BLUE, fillOpacity: 0.3, strokeColor: BLUE, strokeOpacity: 1 }) as VMobject;
+    dCirc.shift(np.array([2, 2, 0]));
+    const dSq = new Square({ sideLength: 1.4, fillColor: RED, fillOpacity: 0.3, strokeColor: RED, strokeOpacity: 1 }) as VMobject;
+    dSq.shift(np.array([2.5, 2.3, 0]));
+    const diff = new Difference(dCirc, dSq, { fillColor: PURPLE, fillOpacity: 0.5, strokeColor: PURPLE, strokeOpacity: 1, strokeWidth: 3 }) as VMobject;
+
+    const [ea, eb] = twoCircles(5.5, 2, 0.5);
+    const excl = new Exclusion(ea, eb, { fillColor: TEAL, fillOpacity: 0.5, strokeColor: TEAL, strokeOpacity: 1, strokeWidth: 3 }) as VMobject;
+
+    // Row 2: Triangle - Circle, and two overlapping squares intersected
+    const triMob = new Triangle({ radius: 1.2, fillColor: ORANGE, fillOpacity: 0.3, strokeColor: ORANGE, strokeOpacity: 1 }) as VMobject;
+    triMob.shift(np.array([-3, -2, 0]));
+    const circOverTri = new Circle({ radius: 0.7, fillColor: BLUE, fillOpacity: 0.3, strokeColor: BLUE, strokeOpacity: 1 }) as VMobject;
+    circOverTri.shift(np.array([-3, -1.7, 0]));
+    const triDiff = new Difference(triMob, circOverTri, { fillColor: ORANGE, fillOpacity: 0.5, strokeColor: ORANGE, strokeOpacity: 1, strokeWidth: 3 }) as VMobject;
+
+    const sq1 = new Square({ sideLength: 1.6, fillColor: RED, fillOpacity: 0.3, strokeColor: RED, strokeOpacity: 1 }) as VMobject;
+    sq1.shift(np.array([3, -2, 0]));
+    const sq2 = new Square({ sideLength: 1.6, fillColor: BLUE, fillOpacity: 0.3, strokeColor: BLUE, strokeOpacity: 1 }) as VMobject;
+    sq2.shift(np.array([3.6, -1.5, 0]));
+    const sqInter = new Intersection(sq1, sq2, { fillColor: GOLD, fillOpacity: 0.6, strokeColor: GOLD, strokeOpacity: 1, strokeWidth: 3 }) as VMobject;
+
+    const allMobs = [u, inter, diff, excl, triDiff, sqInter];
+    for (const mob of allMobs) {
+      const parts = extractFamily(mob);
+      for (const p of parts) scene.queueGrow(p, 0.5);
+    }
+    scene.play();
+  } catch (e) {
+    log(`  ERROR: ${e}`);
+  }
+};
+
+// ── SHAPE MATCHERS ──────────────────────────────────────────
+
+(window as any).testShapeMatchers = () => {
+  scene.clearAll();
+  log("Shape Matchers: SurroundingRectangle, BackgroundRectangle, Cross, Underline");
+
+  try {
+    // Create target shapes
+    const circle = new Circle({ radius: 0.8, fillColor: BLUE, fillOpacity: 0.5, strokeColor: BLUE, strokeOpacity: 1 }) as VMobject;
+    circle.shift(np.array([-4, 2, 0]));
+    const square = new Square({ sideLength: 1.5, fillColor: GREEN, fillOpacity: 0.5, strokeColor: GREEN, strokeOpacity: 1 }) as VMobject;
+    square.shift(np.array([0, 2, 0]));
+    const tri = new Triangle({ radius: 0.8, fillColor: YELLOW, fillOpacity: 0.5, strokeColor: YELLOW, strokeOpacity: 1 }) as VMobject;
+    tri.shift(np.array([4, 2, 0]));
+
+    // SurroundingRectangle around each
+    const sr1 = new SurroundingRectangle(circle, { buff: 0.2, strokeColor: RED, strokeOpacity: 1, strokeWidth: 3 }) as VMobject;
+    const sr2 = new SurroundingRectangle(square, { buff: 0.3, strokeColor: PURPLE, strokeOpacity: 1, strokeWidth: 3 }) as VMobject;
+
+    // Cross over triangle
+    const cross = new Cross(tri, { strokeColor: RED, strokeOpacity: 1, strokeWidth: 4 }) as VMobject;
+
+    // Underline under square
+    const underline = new Underline(square, { buff: 0.15, strokeColor: TEAL, strokeOpacity: 1, strokeWidth: 3 }) as VMobject;
+
+    // BackgroundRectangle
+    const hexagon = new RegularPolygon(6, { radius: 1, fillColor: ORANGE, fillOpacity: 0.7, strokeColor: ORANGE, strokeOpacity: 1 }) as VMobject;
+    hexagon.shift(np.array([-2, -2, 0]));
+    const bg = new BackgroundRectangle(hexagon, { fillOpacity: 0.3, buff: 0.3, fillColor: GRAY_D }) as VMobject;
+
+    const pentagon = new RegularPolygon(5, { radius: 1, fillColor: PINK, fillOpacity: 0.5, strokeColor: PINK, strokeOpacity: 1 }) as VMobject;
+    pentagon.shift(np.array([3, -2, 0]));
+    const sr3 = new SurroundingRectangle(pentagon, { buff: 0.2, strokeColor: GOLD, strokeOpacity: 1, strokeWidth: 3 }) as VMobject;
+
+    const allMobs = [circle, sr1, square, sr2, underline, tri, cross, bg, hexagon, pentagon, sr3];
+    for (const mob of allMobs) {
+      const parts = extractFamily(mob);
+      for (const p of parts) scene.queueGrow(p, 0.3);
+    }
+    scene.play();
+  } catch (e) {
+    log(`  ERROR: ${e}`);
+  }
+};
+
+// ── BRACES ──────────────────────────────────────────────────
+
+(window as any).testBraces = () => {
+  scene.clearAll();
+  log("Braces: Brace, BraceBetweenPoints");
+
+  try {
+    // Create shapes to put braces around
+    const rect = new Rectangle({ width: 4, height: 2, fillColor: BLUE, fillOpacity: 0.3, strokeColor: BLUE, strokeOpacity: 1 }) as VMobject;
+    rect.shift(np.array([-2, 1.5, 0]));
+
+    // Brace below the rectangle
+    const braceDown = new Brace(rect, DOWN, { fillOpacity: 1 }) as unknown as VMobject;
+
+    // Brace to the right
+    const braceRight = new Brace(rect, RIGHT, { fillOpacity: 1 }) as unknown as VMobject;
+
+    const square = new Square({ sideLength: 2, fillColor: RED, fillOpacity: 0.3, strokeColor: RED, strokeOpacity: 1 }) as VMobject;
+    square.shift(np.array([4, 1.5, 0]));
+
+    // Brace above the square
+    const braceUp = new Brace(square, UP, { fillOpacity: 1 }) as unknown as VMobject;
+
+    // BraceBetweenPoints
+    const brace2 = new BraceBetweenPoints(np.array([-5, -2, 0]), np.array([5, -2, 0]), ORIGIN, { fillOpacity: 1 }) as unknown as VMobject;
+
+    const brace3 = new BraceBetweenPoints(np.array([-3, -3, 0]), np.array([3, -3, 0]), ORIGIN, { fillOpacity: 1 }) as unknown as VMobject;
+
+    const allMobs = [rect, braceDown, braceRight, square, braceUp, brace2, brace3];
+    for (const mob of allMobs) {
+      const parts = extractFamily(mob);
+      for (const p of parts) scene.queueGrow(p, 0.3);
+    }
+    scene.play();
+  } catch (e) {
+    log(`  ERROR: ${e}`);
+  }
+};
+
+// ── GRAPHING ────────────────────────────────────────────────
+
+(window as any).testNumberLine = () => {
+  scene.clearAll();
+  log("Graphing: NumberLine");
+
+  try {
+    const nl = new NumberLine({
+      xRange: [-5, 5, 1],
+      length: 12,
+      strokeColor: WHITE,
+      strokeOpacity: 1,
+      strokeWidth: 2,
+      includeTip: true,
+      includeNumbers: false,
+    }) as VMobject;
+
+    const parts = extractFamily(nl);
+    for (const p of parts) scene.queueGrow(p, 0.2);
+    scene.play();
+  } catch (e) {
+    log(`  ERROR: ${e}`);
+  }
+};
+
+(window as any).testAxes = () => {
+  scene.clearAll();
+  log("Graphing: Axes");
+
+  try {
+    const axes = new Axes({
+      xRange: [-3, 3, 1],
+      yRange: [-2, 2, 1],
+      xLength: 10,
+      yLength: 6,
+      tips: true,
+    }) as unknown as VMobject;
+
+    const parts = extractFamily(axes);
+    log(`  → Axes produced ${parts.length} sub-shapes`);
+    for (const p of parts) scene.queueGrow(p, 0.1);
+    scene.play();
+  } catch (e) {
+    log(`  ERROR: ${e}`);
+  }
+};
+
+(window as any).testFunctionGraph = () => {
+  scene.clearAll();
+  log("Graphing: FunctionGraph (sin, cos, parabola)");
+
+  try {
+    // Sin wave
+    const sinGraph = new ParametricFunction(
+      (t: number) => [t, Math.sin(t), 0],
+      { tRange: [-PI * 2, PI * 2, 0.05], strokeColor: BLUE, strokeOpacity: 1, strokeWidth: 3 },
+    ) as VMobject;
+    sinGraph.scale(0.8);
+
+    // Cos wave
+    const cosGraph = new ParametricFunction(
+      (t: number) => [t, Math.cos(t), 0],
+      { tRange: [-PI * 2, PI * 2, 0.05], strokeColor: RED, strokeOpacity: 1, strokeWidth: 3 },
+    ) as VMobject;
+    cosGraph.scale(0.8);
+
+    // Parabola
+    const parabola = new ParametricFunction(
+      (t: number) => [t, t * t / 4 - 2, 0],
+      { tRange: [-3, 3, 0.05], strokeColor: GREEN, strokeOpacity: 1, strokeWidth: 3 },
+    ) as VMobject;
+
+    const allMobs = [sinGraph, cosGraph, parabola];
+    for (const mob of allMobs) {
+      const r = extractRenderMobject(mob);
+      scene.queueCreate(r, 1.0);
+    }
+    scene.play();
+  } catch (e) {
+    log(`  ERROR: ${e}`);
+  }
+};
+
+(window as any).testParametricCurves = () => {
+  scene.clearAll();
+  log("Graphing: Parametric curves (Lissajous, spiral, cardioid)");
+
+  try {
+    // Lissajous curve
+    const lissajous = new ParametricFunction(
+      (t: number) => [3 * Math.sin(3 * t), 2 * Math.cos(2 * t), 0],
+      { tRange: [0, TAU, 0.01], strokeColor: GOLD, strokeOpacity: 1, strokeWidth: 3 },
+    ) as VMobject;
+    lissajous.shift(np.array([-4, 0, 0]));
+
+    // Spiral
+    const spiral = new ParametricFunction(
+      (t: number) => [t * 0.3 * Math.cos(t * 3), t * 0.3 * Math.sin(t * 3), 0],
+      { tRange: [0, TAU, 0.01], strokeColor: TEAL, strokeOpacity: 1, strokeWidth: 3 },
+    ) as VMobject;
+    spiral.shift(np.array([0, 0, 0]));
+
+    // Rose curve (r = cos(3θ))
+    const rose = new ParametricFunction(
+      (t: number) => [2 * Math.cos(3 * t) * Math.cos(t), 2 * Math.cos(3 * t) * Math.sin(t), 0],
+      { tRange: [0, TAU, 0.01], strokeColor: PINK, strokeOpacity: 1, strokeWidth: 3 },
+    ) as VMobject;
+    rose.shift(np.array([4.5, 0, 0]));
+
+    const allMobs = [lissajous, spiral, rose];
+    for (const mob of allMobs) {
+      const r = extractRenderMobject(mob);
+      scene.queueCreate(r, 1.2);
+    }
+    scene.play();
+  } catch (e) {
+    log(`  ERROR: ${e}`);
+  }
+};
+
+// ── 3D SHAPES (projected flat) ──────────────────────────────
+
+(window as any).test3DShapes = () => {
+  scene.clearAll();
+  log("3D Shapes: Sphere, Cube, Cone, Cylinder, Torus (projected to 2D)");
+
+  try {
+    const shapes: VMobject[] = [];
+
+    const sphere = new Sphere({ radius: 1.2 }) as unknown as VMobject;
+    sphere.shift(np.array([-5, 1.5, 0]));
+    shapes.push(sphere);
+
+    const cube = new Cube({ sideLength: 1.8 }) as unknown as VMobject;
+    cube.shift(np.array([-1.5, 1.5, 0]));
+    shapes.push(cube);
+
+    const cone = new Cone({ baseRadius: 1.0, height: 2.0 }) as unknown as VMobject;
+    cone.shift(np.array([2, 1.5, 0]));
+    shapes.push(cone);
+
+    const cyl = new Cylinder({ radius: 0.8, height: 2.0 }) as unknown as VMobject;
+    cyl.shift(np.array([5, 1.5, 0]));
+    shapes.push(cyl);
+
+    const torus = new Torus({ majorRadius: 1.2, minorRadius: 0.4 }) as unknown as VMobject;
+    torus.shift(np.array([-3, -2, 0]));
+    shapes.push(torus);
+
+    let total = 0;
+    for (const mob of shapes) {
+      const parts = extractFamily(mob);
+      total += parts.length;
+      for (const p of parts) {
+        // Flatten Z coordinates for 2D display
+        p.points = p.points.map(([x, y, _z]) => [x, y, 0] as Point3);
+        scene.add(p);
+      }
+    }
+    log(`  → ${shapes.length} 3D shapes → ${total} sub-surfaces`);
+    scene.play();
+  } catch (e) {
+    log(`  ERROR: ${e}`);
+  }
+};
+
+(window as any).testPolyhedra = () => {
+  scene.clearAll();
+  log("3D Polyhedra: Tetrahedron, Octahedron, Icosahedron, Dodecahedron");
+
+  try {
+    const shapes: [any, string, number[]][] = [
+      [Tetrahedron, "Tetrahedron", [-5, 0, 0]],
+      [Octahedron, "Octahedron", [-1.5, 0, 0]],
+      [Icosahedron, "Icosahedron", [2, 0, 0]],
+      [Dodecahedron, "Dodecahedron", [5.5, 0, 0]],
+    ];
+
+    let total = 0;
+    for (const [Cls, name, pos] of shapes) {
+      try {
+        const mob = new Cls() as unknown as VMobject;
+        mob.shift(np.array(pos));
+        const parts = extractFamily(mob);
+        total += parts.length;
+        for (const p of parts) {
+          p.points = p.points.map(([x, y, _z]) => [x, y, 0] as Point3);
+          scene.add(p);
+        }
+      } catch (e) {
+        log(`  ${name}: ${e}`);
+      }
+    }
+    log(`  → ${total} total faces rendered`);
+    scene.play();
+  } catch (e) {
+    log(`  ERROR: ${e}`);
+  }
+};
+
+// ── GRAPH THEORY ────────────────────────────────────────────
+
+// NOTE: The engine's Graph/DiGraph classes in src/mobject/graph/ use stub
+// Dot/Line classes (empty no-op setPointsByEnds) because their real-geometry
+// dependencies haven't been wired in. That means calling `new Graph(...)` here
+// produces zero-geometry submobjects. Until the graph module is un-stubbed,
+// we render the graph visualization manually using the real Circle + Line
+// classes, positioned via a local circular layout.
+function layoutCircular(n: number, scale: number): Array<[number, number]> {
+  const coords: Array<[number, number]> = [];
+  for (let i = 0; i < n; i++) {
+    const a = (TAU * i) / n + PI / 2; // top-first, CCW
+    coords.push([scale * Math.cos(a), scale * Math.sin(a)]);
+  }
+  return coords;
+}
+
+(window as any).testGraph = () => {
+  scene.clearAll();
+  log("Graph Theory: Graph with vertices and edges");
+
+  try {
+    const vertices = [1, 2, 3, 4, 5, 6];
+    const edgePairs: [number, number][] = [
+      [1, 2], [1, 3], [2, 3], [3, 4], [4, 5], [5, 6], [6, 1], [2, 5],
+    ];
+    const coords = layoutCircular(vertices.length, 2.5);
+    const pos = new Map<number, [number, number]>();
+    vertices.forEach((v, i) => pos.set(v, coords[i]));
+
+    // Edges first so vertices draw on top
+    for (const [u, v] of edgePairs) {
+      const [x1, y1] = pos.get(u)!;
+      const [x2, y2] = pos.get(v)!;
+      const line = new Line(
+        np.array([x1, y1, 0]),
+        np.array([x2, y2, 0]),
+        { strokeColor: GRAY_B, strokeOpacity: 1, strokeWidth: 2 },
+      ) as VMobject;
+      const parts = extractFamily(line);
+      for (const p of parts) scene.queueGrow(p, 0.08);
+    }
+    for (const v of vertices) {
+      const [x, y] = pos.get(v)!;
+      const dot = new Circle({ radius: 0.2, fillColor: BLUE, fillOpacity: 1, strokeColor: WHITE, strokeOpacity: 1, strokeWidth: 2 }) as VMobject;
+      dot.shift(np.array([x, y, 0]));
+      const parts = extractFamily(dot);
+      for (const p of parts) scene.queueGrow(p, 0.1);
+    }
+    log(`  → Graph: ${vertices.length} vertices, ${edgePairs.length} edges (rendered manually)`);
+    scene.play();
+  } catch (e) {
+    log(`  ERROR: ${e}`);
+  }
+};
+
+(window as any).testDiGraph = () => {
+  scene.clearAll();
+  log("Graph Theory: DiGraph (directed graph)");
+
+  try {
+    const vertices = [1, 2, 3, 4, 5];
+    const edgePairs: [number, number][] = [
+      [1, 2], [2, 3], [3, 4], [4, 5], [5, 1], [1, 3], [2, 4],
+    ];
+    const coords = layoutCircular(vertices.length, 2.5);
+    const pos = new Map<number, [number, number]>();
+    vertices.forEach((v, i) => pos.set(v, coords[i]));
+
+    // Directed edges rendered as Arrows, shortened slightly so the arrowhead
+    // lands on the target vertex's boundary instead of its center.
+    const vertexRadius = 0.22;
+    for (const [u, v] of edgePairs) {
+      const [x1, y1] = pos.get(u)!;
+      const [x2, y2] = pos.get(v)!;
+      const dx = x2 - x1, dy = y2 - y1;
+      const len = Math.hypot(dx, dy);
+      const ux = dx / len, uy = dy / len;
+      const arr = new Arrow(
+        np.array([x1 + ux * vertexRadius, y1 + uy * vertexRadius, 0]),
+        np.array([x2 - ux * vertexRadius, y2 - uy * vertexRadius, 0]),
+        { strokeColor: GRAY_B, strokeOpacity: 1, strokeWidth: 2, buff: 0 },
+      ) as VMobject;
+      const parts = extractFamily(arr);
+      for (const p of parts) scene.queueGrow(p, 0.08);
+    }
+    for (const v of vertices) {
+      const [x, y] = pos.get(v)!;
+      const dot = new Circle({ radius: vertexRadius, fillColor: GREEN, fillOpacity: 1, strokeColor: WHITE, strokeOpacity: 1, strokeWidth: 2 }) as VMobject;
+      dot.shift(np.array([x, y, 0]));
+      const parts = extractFamily(dot);
+      for (const p of parts) scene.queueGrow(p, 0.1);
+    }
+    log(`  → DiGraph: ${vertices.length} vertices, ${edgePairs.length} arrows (rendered manually)`);
+    scene.play();
+  } catch (e) {
+    log(`  ERROR: ${e}`);
+  }
+};
+
+// ── VECTOR FIELDS ───────────────────────────────────────────
+
+(window as any).testVectorField = () => {
+  scene.clearAll();
+  log("Vector Field: ArrowVectorField");
+
+  try {
+    const field = new ArrowVectorField(
+      (pos) => np.array([Math.sin(Number(pos.get([1]))), Math.cos(Number(pos.get([0]))), 0]),
+      {
+        xRange: [-5, 5, 1],
+        yRange: [-3, 3, 1],
+        opacity: 0.8,
+      },
+    ) as unknown as VMobject;
+
+    const parts = extractFamily(field);
+    log(`  → ${parts.length} arrows in vector field`);
+    for (const p of parts) scene.add(p);
+    scene.play();
+  } catch (e) {
+    log(`  ERROR: ${e}`);
+  }
+};
+
+// ── VALUE TRACKER ───────────────────────────────────────────
+
+(window as any).testValueTracker = () => {
+  scene.clearAll();
+  log("ValueTracker: demonstrates parameter tracking");
+
+  try {
+    const tracker = new ValueTracker({ value: 0 });
+    log(`  Initial value: ${tracker.getValue()}`);
+    tracker.setValue(5);
+    log(`  After setValue(5): ${tracker.getValue()}`);
+    tracker.incrementValue(3);
+    log(`  After incrementValue(3): ${tracker.getValue()}`);
+
+    // Show a visual representation: circle whose radius tracks the value
+    const radii = [0.5, 1.0, 1.5, 2.0, 2.5];
+    const colors = [BLUE, GREEN, YELLOW, ORANGE, RED];
+    for (let i = 0; i < radii.length; i++) {
+      tracker.setValue(radii[i]);
+      const c = new Circle({ radius: tracker.getValue(), fillColor: colors[i], fillOpacity: 0.3, strokeColor: colors[i], strokeOpacity: 1 }) as VMobject;
+      const r = extractRenderMobject(c, `r=${radii[i]}`);
+      scene.queueGrow(r, 0.4);
+    }
+    scene.play();
+    log(`  ValueTracker working correctly — concentric circles from tracked values`);
+  } catch (e) {
+    log(`  ERROR: ${e}`);
+  }
+};
 
 // ── Clear ────────────────────────────────────────────────────
 

@@ -154,7 +154,11 @@ export class ManimColor implements IColor {
       } else {
         this._value = ManimColor._fromString(value, alpha);
       }
-    } else if (Array.isArray(value) || (typeof value === "object" && "length" in value)) {
+    } else if (
+      Array.isArray(value) ||
+      (typeof value === "object" &&
+        (value as { length?: unknown }).length !== undefined)
+    ) {
       const arr = value as readonly number[];
       const length = arr.length;
       // Heuristic: if any value > 1, treat as int (0-255); otherwise float (0-1)
@@ -186,9 +190,10 @@ export class ManimColor implements IColor {
         }
       }
     } else {
+      const ctor = (value as { constructor?: { name?: string } })?.constructor?.name;
       throw new TypeError(
         "ManimColor only accepts ManimColor, number, string, " +
-          "or arrays of 3 or 4 numbers"
+          `or arrays of 3 or 4 numbers — got ${typeof value}${ctor ? ` (${ctor})` : ""}: ${String(value).slice(0, 120)}`
       );
     }
   }
