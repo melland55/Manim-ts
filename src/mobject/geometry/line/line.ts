@@ -15,7 +15,7 @@ import {
   LEFT,
   OUT,
 } from "../../../core/math/index.js";
-import { VMobject } from "../../types/index.js";
+import { VMobject, VGroup } from "../../types/index.js";
 import type { VMobjectOptions } from "../../types/index.js";
 import { Mobject, Group } from "../../mobject/index.js";
 import {
@@ -49,6 +49,25 @@ import type { IColor } from "../../../core/types.js";
 
 // ── Helpers ────────────────────────────────────────────────────
 
+/**
+ * Duck-type a value as a "point-like" (point or mobject) vs a plain options
+ * object, for constructor overload discrimination.
+ *
+ * A point-like arg is: a Mobject, a plain number[], or an NDArray (detected
+ * via presence of a `.get` method). Note: `"shape" in x` is unreliable for
+ * numpy-ts NDArrays, which are Proxy objects whose `has` trap does not
+ * expose `shape` — relying on it made `new Line(np.array(...), np.array(...))`
+ * silently fall through to the defaults-only branch.
+ */
+function isPointLike(x: unknown): boolean {
+  if (x === null || x === undefined) return false;
+  if (x instanceof Mobject) return true;
+  if (Array.isArray(x)) return true;
+  if (typeof x === "object" &&
+      typeof (x as { get?: unknown }).get === "function") return true;
+  return false;
+}
+
 /** Extract row i from an [n, 3] NDArray as a Point3D. */
 function getRow(pts: NDArray, i: number): Point3D {
   return np.array([
@@ -62,19 +81,7 @@ function getRow(pts: NDArray, i: number): Point3D {
 
 type AngleQuadrant = [(-1 | 1), (-1 | 1)];
 
-// ── VGroup stub ───────────────────────────────────────────────
-// TODO: Replace with import from ../../types/vectorized_mobject/index.js once VGroup is exported
-
-class VGroup extends VMobject {
-  constructor(...vmobjects: VMobject[]) {
-    super();
-    for (const vm of vmobjects) {
-      this.add(vm);
-    }
-  }
-}
-
-// ── DashedVMobject stub ───────────────────────────────────────
+// ── DashedVMobject helper ─────────────────────────────────────
 // Minimal implementation that creates dashed copies of a VMobject.
 // TODO: Replace with import from ../../types/vectorized_mobject/index.js once DashedVMobject is exported
 
@@ -138,22 +145,16 @@ export class Line extends TipableVMobject {
     let endArg: Point3D | number[] | Mobject;
     let opts: LineOptions;
 
-    if (
-      startOrOptions === undefined ||
-      (typeof startOrOptions === "object" &&
-        !Array.isArray(startOrOptions) &&
-        !(startOrOptions instanceof Mobject) &&
-        !("shape" in startOrOptions))
-    ) {
-      // Called as new Line(options?) or new Line()
-      opts = (startOrOptions as LineOptions) ?? {};
-      startArg = opts.start ?? LEFT;
-      endArg = opts.end ?? RIGHT;
-    } else {
+    if (isPointLike(startOrOptions)) {
       // Called as new Line(start, end, options?)
-      startArg = startOrOptions;
+      startArg = startOrOptions as Point3D | number[] | Mobject;
       endArg = end ?? RIGHT;
       opts = options;
+    } else {
+      // Called as new Line(options?) or new Line()
+      opts = (startOrOptions as LineOptions | undefined) ?? {};
+      startArg = opts.start ?? LEFT;
+      endArg = opts.end ?? RIGHT;
     }
 
     const buff = opts.buff ?? 0;
@@ -418,16 +419,10 @@ export class DashedLine extends Line {
   ) {
     // Extract dash-specific options
     let opts: DashedLineOptions;
-    if (
-      startOrOptions === undefined ||
-      (typeof startOrOptions === "object" &&
-        !Array.isArray(startOrOptions) &&
-        !(startOrOptions instanceof Mobject) &&
-        !("shape" in startOrOptions))
-    ) {
-      opts = (startOrOptions as DashedLineOptions) ?? {};
-    } else {
+    if (isPointLike(startOrOptions)) {
       opts = options;
+    } else {
+      opts = (startOrOptions as DashedLineOptions | undefined) ?? {};
     }
 
     const dashLength = opts.dashLength ?? DEFAULT_DASH_LENGTH;
@@ -438,13 +433,8 @@ export class DashedLine extends Line {
     delete (lineOpts as Record<string, unknown>).dashLength;
     delete (lineOpts as Record<string, unknown>).dashedRatio;
 
-    if (
-      startOrOptions !== undefined &&
-      (Array.isArray(startOrOptions) ||
-        startOrOptions instanceof Mobject ||
-        (typeof startOrOptions === "object" && "shape" in startOrOptions))
-    ) {
-      super(startOrOptions, end, lineOpts);
+    if (isPointLike(startOrOptions)) {
+      super(startOrOptions as Point3D | number[] | Mobject, end, lineOpts);
     } else {
       super(lineOpts);
     }
@@ -596,20 +586,14 @@ export class Arrow extends Line {
     let startArg: Point3D | number[] | Mobject | undefined;
     let endArg: Point3D | number[] | Mobject | undefined;
 
-    if (
-      startOrOptions === undefined ||
-      (typeof startOrOptions === "object" &&
-        !Array.isArray(startOrOptions) &&
-        !(startOrOptions instanceof Mobject) &&
-        !("shape" in startOrOptions))
-    ) {
-      opts = (startOrOptions as ArrowOptions) ?? {};
+    if (isPointLike(startOrOptions)) {
+      opts = options;
+      startArg = startOrOptions as Point3D | number[] | Mobject;
+      endArg = end;
+    } else {
+      opts = (startOrOptions as ArrowOptions | undefined) ?? {};
       startArg = undefined;
       endArg = undefined;
-    } else {
-      opts = options;
-      startArg = startOrOptions;
-      endArg = end;
     }
 
     const maxTipLengthToLengthRatio = opts.maxTipLengthToLengthRatio ?? 0.25;
@@ -741,20 +725,15 @@ export class Vector extends Arrow {
     let direction: number[];
     let opts: VectorOptions;
 
-    if (
-      directionOrOptions === undefined ||
-      (typeof directionOrOptions === "object" &&
-        !Array.isArray(directionOrOptions) &&
-        !("shape" in directionOrOptions))
-    ) {
-      opts = (directionOrOptions as VectorOptions) ?? {};
-      const dir = opts.direction ?? RIGHT;
-      direction = Array.isArray(dir) ? dir : (dir.toArray() as number[]);
-    } else {
+    if (isPointLike(directionOrOptions)) {
       opts = options;
       direction = Array.isArray(directionOrOptions)
         ? directionOrOptions
-        : (directionOrOptions.toArray() as number[]);
+        : ((directionOrOptions as NDArray).toArray() as number[]);
+    } else {
+      opts = (directionOrOptions as VectorOptions | undefined) ?? {};
+      const dir = opts.direction ?? RIGHT;
+      direction = Array.isArray(dir) ? dir : (dir.toArray() as number[]);
     }
 
     if (direction.length === 2) {
@@ -793,16 +772,10 @@ export class DoubleArrow extends Arrow {
     options: DoubleArrowOptions = {},
   ) {
     let opts: DoubleArrowOptions;
-    if (
-      startOrOptions === undefined ||
-      (typeof startOrOptions === "object" &&
-        !Array.isArray(startOrOptions) &&
-        !(startOrOptions instanceof Mobject) &&
-        !("shape" in startOrOptions))
-    ) {
-      opts = (startOrOptions as DoubleArrowOptions) ?? {};
-    } else {
+    if (isPointLike(startOrOptions)) {
       opts = options;
+    } else {
+      opts = (startOrOptions as DoubleArrowOptions | undefined) ?? {};
     }
 
     // Handle tip shape options
@@ -814,13 +787,8 @@ export class DoubleArrow extends Arrow {
     delete (arrowOpts as Record<string, unknown>).tipShapeEnd;
     delete (arrowOpts as Record<string, unknown>).tipShapeStart;
 
-    if (
-      startOrOptions !== undefined &&
-      (Array.isArray(startOrOptions) ||
-        startOrOptions instanceof Mobject ||
-        (typeof startOrOptions === "object" && "shape" in startOrOptions))
-    ) {
-      super(startOrOptions, end, arrowOpts);
+    if (isPointLike(startOrOptions)) {
+      super(startOrOptions as Point3D | number[] | Mobject, end, arrowOpts);
     } else {
       super(arrowOpts);
     }

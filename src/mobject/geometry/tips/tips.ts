@@ -14,8 +14,18 @@ import type { NDArray } from "numpy-ts";
 import type { IColor } from "../../../core/types.js";
 import { VMobject } from "../../types/index.js";
 import type { VMobjectOptions } from "../../types/index.js";
-import { Circle, Triangle, Square } from "../index.js";
-import type { CircleOptions, TriangleOptions, SquareOptions } from "../index.js";
+// tips.ts has a baseline runtime dependency on Circle, Triangle, Square as
+// base classes for arrow-tip subclasses. Circle/Triangle live in ../arc/arc.ts,
+// which already imports this tips module — so pulling Circle from the geometry
+// barrel (which re-exports from arc/) creates an ES-module cycle and causes
+// `class ArrowCircleTip extends Circle` to evaluate with Circle === undefined.
+//
+// To break the cycle we import from the minimal stub file ../geometry.js for
+// tips' purposes. The stub Circle/Triangle/Square are sufficient as bases for
+// tip shapes (tips override their own geometry via generatePoints). External
+// consumers of the geometry barrel still get the real classes.
+import { Circle, Triangle, Square } from "../geometry.js";
+import type { CircleOptions, SquareOptions } from "../geometry.js";
 import { DEFAULT_ARROW_TIP_LENGTH } from "../../../constants/index.js";
 import { angleOfVector } from "../../../utils/space_ops/index.js";
 

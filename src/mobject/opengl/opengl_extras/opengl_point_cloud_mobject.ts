@@ -20,6 +20,19 @@ import { ORIGIN } from "../../../core/math/index.js";
 import { OpenGLMobject, type OpenGLMobjectOptions } from "../opengl_mobject.js";
 import type { Point3D } from "../../../core/types.js";
 
+/**
+ * Duck-type an NDArray. numpy-ts NDArrays are Proxy objects whose `has` trap
+ * does not expose `shape`, so `"shape" in x` is always false at runtime — the
+ * reliable check is for the `.get` method exposed by the proxy's `get` trap.
+ */
+function isNDArray(x: unknown): x is NDArray {
+  return (
+    x !== null &&
+    typeof x === "object" &&
+    typeof (x as { get?: unknown }).get === "function"
+  );
+}
+
 // ─── OpenGLPMobject ──────────────────────────────────────────
 
 export interface OpenGLPMobjectOptions extends OpenGLMobjectOptions {
@@ -52,10 +65,9 @@ export class OpenGLPMobject extends OpenGLMobject {
 
     // If points were provided in options, set them
     if (options.points) {
-      const pts =
-        options.points instanceof Object && "shape" in options.points
-          ? (options.points as NDArray)
-          : np.array(options.points as number[][]);
+      const pts = isNDArray(options.points)
+        ? options.points
+        : np.array(options.points as number[][]);
       this.setPoints(pts);
     }
   }
@@ -88,10 +100,7 @@ export class OpenGLPMobject extends OpenGLMobject {
       color = PURE_YELLOW;
     }
 
-    const pts =
-      points instanceof Object && "shape" in points
-        ? (points as NDArray)
-        : np.array(points as number[][]);
+    const pts = isNDArray(points) ? points : np.array(points as number[][]);
 
     this.appendPoints(pts);
 
@@ -111,10 +120,7 @@ export class OpenGLPMobject extends OpenGLMobject {
       }
       newRgbas = np.array(rows);
     } else if (rgbas !== null) {
-      newRgbas =
-        rgbas instanceof Object && "shape" in rgbas
-          ? (rgbas as NDArray)
-          : np.array(rgbas as number[][]);
+      newRgbas = isNDArray(rgbas) ? rgbas : np.array(rgbas as number[][]);
     } else {
       throw new Error("points and rgbas must have same length");
     }
@@ -423,10 +429,9 @@ export class OpenGLPMPoint extends OpenGLPMobject {
       ...rest
     } = options;
     super({ strokeWidth, ...rest });
-    this.location =
-      location instanceof Object && "shape" in location
-        ? (location as NDArray)
-        : np.array(location as number[]);
+    this.location = isNDArray(location)
+      ? location
+      : np.array(location as number[]);
     this.initPoints();
   }
 

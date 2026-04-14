@@ -41,72 +41,9 @@ import {
 } from "../../text/tex_mobject/index.js";
 import { Brace } from "../../svg/brace.js";
 
-// ─── Dependency stubs for not-yet-converted modules ──────────
-// TODO: Replace these stubs with real imports once the respective modules land
+import { VGroup } from "../../types/index.js";
+import { Rectangle } from "../../geometry/polygram/index.js";
 
-/**
- * Minimal VGroup stub.
- * TODO: Replace with import from ../../types/vectorized_mobject once VGroup is exported
- */
-class VGroup extends VMobject {
-  constructor(...vmobjects: Mobject[]) {
-    super();
-    if (vmobjects.length > 0) {
-      this.add(...vmobjects);
-    }
-  }
-}
-
-/**
- * Minimal Rectangle stub extending VMobject.
- * TODO: Replace with import from ../../geometry/polygram once Rectangle is converted
- */
-class Rectangle extends VMobject {
-  rectWidth: number;
-  rectHeight: number;
-
-  constructor(
-    options: {
-      width?: number;
-      height?: number;
-      fillColor?: ParsableManimColor;
-      fillOpacity?: number;
-      strokeWidth?: number;
-      strokeColor?: ParsableManimColor;
-    } = {},
-  ) {
-    super({
-      fillColor:
-        options.fillColor != null
-          ? new ManimColor(options.fillColor)
-          : undefined,
-      fillOpacity: options.fillOpacity,
-      strokeWidth: options.strokeWidth,
-      strokeColor:
-        options.strokeColor != null
-          ? new ManimColor(options.strokeColor)
-          : undefined,
-    });
-    this.rectWidth = options.width ?? 4.0;
-    this.rectHeight = options.height ?? 2.0;
-  }
-
-  get width(): number {
-    return this.rectWidth;
-  }
-
-  set width(value: number) {
-    this.rectWidth = value;
-  }
-
-  get height(): number {
-    return this.rectHeight;
-  }
-
-  set height(value: number) {
-    this.rectHeight = value;
-  }
-}
 
 /**
  * Minimal Axes stub.
@@ -248,10 +185,10 @@ export class SampleSpace extends Rectangle {
     super({
       height,
       width,
-      fillColor,
+      fillColor: ManimColor.parse(fillColor) as ManimColor,
       fillOpacity,
       strokeWidth,
-      strokeColor,
+      strokeColor: ManimColor.parse(strokeColor) as ManimColor,
     });
     this.defaultLabelScaleVal = defaultLabelScaleVal;
   }
@@ -368,8 +305,8 @@ export class SampleSpace extends Rectangle {
       }
       labelMob.nextTo(brace, direction, { buff });
 
-      braces.add(brace as unknown as Mobject);
-      labelMobs.add(labelMob);
+      braces.add(brace as unknown as VMobject);
+      labelMobs.add(labelMob as VMobject);
     }
 
     parts.braces = braces;

@@ -313,12 +313,20 @@ export class OpenGLTipableVMobject extends OpenGLVMobject {
   }
 
   getFirstHandle(): Point3D {
-    return this.points.get([1]) as unknown as Point3D;
+    return np.array([
+      this.points.get([1, 0]) as number,
+      this.points.get([1, 1]) as number,
+      this.points.get([1, 2]) as number,
+    ]) as Point3D;
   }
 
   getLastHandle(): Point3D {
     const n = this.points.shape[0];
-    return this.points.get([n - 2]) as unknown as Point3D;
+    return np.array([
+      this.points.get([n - 2, 0]) as number,
+      this.points.get([n - 2, 1]) as number,
+      this.points.get([n - 2, 2]) as number,
+    ]) as Point3D;
   }
 
   getEnd(): Point3D {

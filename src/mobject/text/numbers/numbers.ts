@@ -35,56 +35,7 @@ import type {
 } from "../tex_mobject/index.js";
 import { Text } from "../text_mobject/index.js";
 import { ValueTracker } from "../../value_tracker/index.js";
-
-// ─── Dependency stubs ───────────────────────────────────────
-// These mirror the stubs used in tex_mobject.ts.
-// Replace with real imports once the respective modules are fully converted.
-
-// VMobject stub
-// TODO: Replace with import from ../../types/vectorized_mobject/index.js once converted
-class VMobject extends Mobject {
-  fillColor: ManimColor;
-  fillOpacity: number;
-  strokeColor: ManimColor;
-  strokeOpacity: number;
-  declare strokeWidth: number;
-
-  constructor(
-    options: {
-      color?: ParsableManimColor | null;
-      name?: string;
-      fillColor?: ParsableManimColor | null;
-      fillOpacity?: number;
-      strokeColor?: ParsableManimColor | null;
-      strokeOpacity?: number;
-      strokeWidth?: number;
-    } = {},
-  ) {
-    super({
-      color: options.color ?? undefined,
-      name: options.name,
-    });
-    this.fillColor = options.fillColor
-      ? (ManimColor.parse(options.fillColor) as ManimColor)
-      : (ManimColor.parse("#FFFFFF") as ManimColor);
-    this.fillOpacity = options.fillOpacity ?? 0.0;
-    this.strokeColor = options.strokeColor
-      ? (ManimColor.parse(options.strokeColor) as ManimColor)
-      : (ManimColor.parse("#FFFFFF") as ManimColor);
-    this.strokeOpacity = options.strokeOpacity ?? 1.0;
-    this.strokeWidth = options.strokeWidth ?? 4;
-  }
-
-  setFill(color?: ParsableManimColor, opacity?: number): this {
-    if (color !== undefined) {
-      this.fillColor = ManimColor.parse(color) as ManimColor;
-    }
-    if (opacity !== undefined) {
-      this.fillOpacity = opacity;
-    }
-    return this;
-  }
-}
+import { VMobject } from "../../types/index.js";
 
 // ─── Module-level cache ────────────────────────────────────
 
@@ -164,7 +115,14 @@ export class DecimalNumber extends VMobject {
       name,
     } = options;
 
-    super({ fillOpacity, strokeWidth, color, name });
+    super({
+      fillOpacity,
+      strokeWidth,
+      color: color ? (ManimColor.parse(color) as ManimColor) : undefined,
+    });
+    if (name !== undefined) {
+      this.name = name;
+    }
 
     this.number = num;
     this.numDecimalPlaces = numDecimalPlaces;
@@ -474,7 +432,13 @@ export class Variable extends VMobject {
     );
     valueMob.nextTo(labelMob, RIGHT as Point3D);
 
-    super(vmobjectOptions);
+    const { color: vmColor, name: vmName } = vmobjectOptions;
+    super({
+      color: vmColor ? (ManimColor.parse(vmColor) as ManimColor) : undefined,
+    });
+    if (vmName !== undefined) {
+      this.name = vmName;
+    }
 
     this.label = labelMob;
     this.tracker = tracker;

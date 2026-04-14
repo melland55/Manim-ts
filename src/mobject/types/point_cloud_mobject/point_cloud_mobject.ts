@@ -28,6 +28,19 @@ import {
   PURE_YELLOW,
   WHITE,
 } from "../../../utils/color/manim_colors.js";
+
+/**
+ * Duck-type an NDArray. numpy-ts NDArrays are Proxy objects whose `has` trap
+ * does NOT expose `shape`, so `"shape" in x` returns false at runtime — the
+ * reliable check is for the `.get` method exposed by the proxy's `get` trap.
+ */
+function isNDArray(x: unknown): x is NDArray {
+  return (
+    x !== null &&
+    typeof x === "object" &&
+    typeof (x as { get?: unknown }).get === "function"
+  );
+}
 import { stretchArrayToLength } from "../../../utils/iterables/index.js";
 
 // ─── Options ────────────────────────────────────────────────
@@ -88,9 +101,7 @@ export class PMobject extends Mobject {
     color?: ParsableManimColor | null,
     alpha: number = 1.0,
   ): this {
-    const pts = points instanceof Object && "shape" in points
-      ? points as NDArray
-      : np.array(points as number[][]);
+    const pts = isNDArray(points) ? points : np.array(points as number[][]);
     const numNewPoints = pts.shape[0];
     this.points = this.points.shape[0] === 0
       ? pts
@@ -106,9 +117,7 @@ export class PMobject extends Mobject {
       }
       rgbaArr = numNewPoints > 0 ? np.array(rows) : np.zeros([0, 4]);
     } else {
-      rgbaArr = rgbas instanceof Object && "shape" in rgbas
-        ? rgbas as NDArray
-        : np.array(rgbas as number[][]);
+      rgbaArr = isNDArray(rgbas) ? rgbas : np.array(rgbas as number[][]);
       if (rgbaArr.shape[0] !== numNewPoints) {
         throw new Error("points and rgbas must have same length");
       }

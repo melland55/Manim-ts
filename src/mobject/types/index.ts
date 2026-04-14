@@ -2,8 +2,26 @@
  * Barrel export for mobject.types module.
  * Python: manim.mobject.types
  */
-export { VMobject } from "./vectorized_mobject.js";
-export type { VMobjectOptions } from "./vectorized_mobject.js";
+export {
+  VMobject,
+  VGroup,
+  VDict,
+  VectorizedPoint,
+  CurvesAsSubmobjects,
+  DashedVMobject,
+} from "./vectorized_mobject.js";
+export type { VMobjectOptions, DashedVMobjectOptions } from "./vectorized_mobject.js";
+
+export {
+  AbstractImageMobject,
+  ImageMobject,
+  ImageMobjectFromCamera,
+} from "./image_mobject/index.js";
+export type {
+  AbstractImageMobjectOptions,
+  ImageMobjectOptions,
+  ImageMobjectFromCameraOptions,
+} from "./image_mobject/index.js";
 
 export {
   PMobject,

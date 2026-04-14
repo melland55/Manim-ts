@@ -46,214 +46,9 @@ import {
   zToVector,
 } from "../../utils/space_ops/index.js";
 
-// ─── Stub types for unconverted dependencies ────────────────
-// These should be replaced with real imports once the corresponding
-// modules (mobject.types, mobject.geometry) are converted.
-
-/**
- * Stub for VMobject. Extends Mobject with fill/stroke properties
- * and path construction methods used by 3D shapes.
- * TODO: Replace with import from "../types/index.js" once converted.
- */
-class VMobject extends Mobject {
-  fillColor: ManimColor;
-  fillOpacity: number;
-  strokeColor: ManimColor;
-  strokeOpacity: number;
-  strokeWidth: number;
-  shadeIn3d: boolean;
-
-  constructor(options: {
-    fillColor?: ParsableManimColor;
-    fillOpacity?: number;
-    strokeColor?: ParsableManimColor;
-    strokeOpacity?: number;
-    strokeWidth?: number;
-    shadeIn3d?: boolean;
-    color?: ParsableManimColor;
-    name?: string;
-    zIndex?: number;
-  } = {}) {
-    super({ color: options.color, name: options.name, zIndex: options.zIndex });
-    this.fillColor = options.fillColor
-      ? ManimColor.parse(options.fillColor) as ManimColor
-      : ManimColor.parse(WHITE) as ManimColor;
-    this.fillOpacity = options.fillOpacity ?? 0.0;
-    this.strokeColor = options.strokeColor
-      ? ManimColor.parse(options.strokeColor) as ManimColor
-      : ManimColor.parse(WHITE) as ManimColor;
-    this.strokeOpacity = options.strokeOpacity ?? 1.0;
-    this.strokeWidth = options.strokeWidth ?? 4;
-    this.shadeIn3d = options.shadeIn3d ?? false;
-  }
-
-  setFill(
-    color?: ParsableManimColor,
-    opacity?: number | null,
-  ): this {
-    if (color !== undefined) {
-      this.fillColor = ManimColor.parse(color) as ManimColor;
-    }
-    if (opacity !== undefined && opacity !== null) {
-      this.fillOpacity = opacity;
-    }
-    for (const sub of this.submobjects) {
-      if (sub instanceof VMobject) {
-        sub.setFill(color, opacity);
-      }
-    }
-    return this;
-  }
-
-  setStroke(
-    color?: ParsableManimColor,
-    width?: number,
-    opacity?: number,
-  ): this {
-    if (color !== undefined) {
-      this.strokeColor = ManimColor.parse(color) as ManimColor;
-    }
-    if (width !== undefined) {
-      this.strokeWidth = width;
-    }
-    if (opacity !== undefined) {
-      this.strokeOpacity = opacity;
-    }
-    for (const sub of this.submobjects) {
-      if (sub instanceof VMobject) {
-        sub.setStroke(color, width, opacity);
-      }
-    }
-    return this;
-  }
-
-  setPointsAsCorners(corners: number[][]): this {
-    const nPoints = corners.length;
-    if (nPoints < 2) return this;
-    const quads: number[][] = [];
-    for (let i = 0; i < nPoints - 1; i++) {
-      const c0 = corners[i];
-      const c1 = corners[i + 1];
-      const mid = c0.map((v, j) => (v + c1[j]) / 2);
-      quads.push(c0, mid, mid, c1);
-    }
-    this.points = np.array(quads);
-    return this;
-  }
-
-  makeJagged(): this {
-    // Stub: in full VMobject this changes anchor interpolation
-    return this;
-  }
-
-  getAnchors(): NDArray {
-    if (this.getNumPoints() === 0) return np.zeros([0, 3]);
-    const pts = this.points.toArray() as number[][];
-    const anchors: number[][] = [];
-    for (let i = 0; i < pts.length; i += 4) {
-      anchors.push(pts[i]);
-    }
-    if (pts.length > 0 && (pts.length - 1) % 4 !== 0) {
-      anchors.push(pts[pts.length - 1]);
-    }
-    return np.array(anchors.length > 0 ? anchors : [[0, 0, 0]]);
-  }
-}
-
-/**
- * Stub for VGroup. Extends VMobject to hold a collection of VMobject children.
- * TODO: Replace with import from "../types/index.js" once converted.
- */
-class VGroup extends VMobject {
-  constructor(options: {
-    fillColor?: ParsableManimColor;
-    fillOpacity?: number;
-    strokeColor?: ParsableManimColor;
-    strokeOpacity?: number;
-    strokeWidth?: number;
-    color?: ParsableManimColor;
-    name?: string;
-  } = {}) {
-    super(options);
-  }
-}
-
-/**
- * Stub for VectorizedPoint — a VMobject that holds a single point.
- * TODO: Replace with import from "../types/index.js" once converted.
- */
-class VectorizedPoint extends VMobject {
-  constructor(location?: Point3D | number[]) {
-    super();
-    const loc = location ?? [0, 0, 0];
-    const arr = loc instanceof Array ? loc : (loc.toArray() as number[]);
-    this.points = np.array([arr, arr, arr, arr]);
-  }
-}
-
-/**
- * Stub for Circle — a VMobject circle.
- * TODO: Replace with import from "../geometry/index.js" once converted.
- */
-class Circle extends VMobject {
-  radius: number;
-
-  constructor(options: {
-    radius?: number;
-    color?: ParsableManimColor;
-    fillOpacity?: number;
-    strokeWidth?: number;
-    shadeIn3d?: boolean;
-  } = {}) {
-    super({
-      color: options.color,
-      fillOpacity: options.fillOpacity,
-      strokeWidth: options.strokeWidth ?? 4,
-      shadeIn3d: options.shadeIn3d,
-    });
-    this.radius = options.radius ?? 1;
-    this._generateCirclePoints();
-  }
-
-  private _generateCirclePoints(): void {
-    const n = 8;
-    const pts: number[][] = [];
-    for (let i = 0; i <= n; i++) {
-      const angle = (TAU * i) / n;
-      pts.push([
-        this.radius * Math.cos(angle),
-        this.radius * Math.sin(angle),
-        0,
-      ]);
-    }
-    this.setPointsAsCorners(pts);
-  }
-}
-
-/**
- * Stub for Square — a VMobject square.
- * TODO: Replace with import from "../geometry/index.js" once converted.
- */
-class Square extends VMobject {
-  sideLength: number;
-
-  constructor(options: {
-    sideLength?: number;
-    shadeIn3d?: boolean;
-    jointType?: number;
-  } = {}) {
-    super({ shadeIn3d: options.shadeIn3d });
-    this.sideLength = options.sideLength ?? 2;
-    const h = this.sideLength / 2;
-    this.setPointsAsCorners([
-      [-h, -h, 0],
-      [h, -h, 0],
-      [h, h, 0],
-      [-h, h, 0],
-      [-h, -h, 0],
-    ]);
-  }
-}
+import { VMobject, VGroup, VectorizedPoint } from "../types/index.js";
+import { Circle } from "../geometry/arc/index.js";
+import { Square } from "../geometry/polygram/index.js";
 
 // ─── ThreeDVMobject ─────────────────────────────────────────
 
@@ -275,18 +70,40 @@ export class ThreeDVMobject extends VMobject {
   u2: number = 0;
   v1: number = 0;
   v2: number = 0;
+  shadeIn3d: boolean;
 
   constructor(options: ThreeDVMobjectOptions = {}) {
     super({
-      shadeIn3d: options.shadeIn3d ?? true,
-      fillColor: options.fillColor,
+      fillColor: options.fillColor
+        ? (ManimColor.parse(options.fillColor) as ManimColor)
+        : undefined,
       fillOpacity: options.fillOpacity,
-      strokeColor: options.strokeColor,
+      strokeColor: options.strokeColor
+        ? (ManimColor.parse(options.strokeColor) as ManimColor)
+        : undefined,
       strokeOpacity: options.strokeOpacity,
       strokeWidth: options.strokeWidth,
-      color: options.color,
-      name: options.name,
+      color: options.color
+        ? (ManimColor.parse(options.color) as ManimColor)
+        : undefined,
     });
+    if (options.name !== undefined) {
+      this.name = options.name;
+    }
+    this.shadeIn3d = options.shadeIn3d ?? true;
+  }
+
+  /** Set points as straight-line corners (builds Bezier path with line segments). */
+  setPointsAsCorners(corners: (Point3D | number[])[]): this {
+    this.clearPoints();
+    if (corners.length < 2) return this;
+    const first = Array.isArray(corners[0]) ? np.array(corners[0]) : corners[0];
+    this.startNewPath(first as Point3D);
+    for (let i = 1; i < corners.length; i++) {
+      const pt = Array.isArray(corners[i]) ? np.array(corners[i]) : corners[i];
+      this.addLineTo(pt as Point3D);
+    }
+    return this;
   }
 }
 
@@ -325,14 +142,17 @@ export class Surface extends VGroup {
   ) {
     const fillColor = options.fillColor ?? BLUE_D;
     const strokeColor = options.strokeColor ?? LIGHT_GREY;
-    super({
-      fillColor,
-      fillOpacity: options.fillOpacity ?? 1.0,
-      strokeColor,
-      strokeWidth: options.strokeWidth ?? 0.5,
-      color: options.color,
-      name: options.name,
-    });
+    super();
+    this.fillColor = ManimColor.parse(fillColor) as ManimColor;
+    this.fillOpacity = options.fillOpacity ?? 1.0;
+    this.strokeColor = ManimColor.parse(strokeColor) as ManimColor;
+    this.strokeWidth = options.strokeWidth ?? 0.5;
+    if (options.color !== undefined) {
+      this.setColor(ManimColor.parse(options.color) as ManimColor);
+    }
+    if (options.name !== undefined) {
+      this.name = options.name;
+    }
 
     this.uRange = options.uRange ?? [0, 1];
     this.vRange = options.vRange ?? [0, 1];
@@ -365,9 +185,8 @@ export class Surface extends VGroup {
       }
       return result as NDArray;
     });
-    if (this.shouldMakeJagged) {
-      this.makeJagged();
-    }
+    // Note: makeJagged not yet implemented on VMobject; shouldMakeJagged is stored
+    // but no geometry transform is applied.
   }
 
   func(u: number, v: number): NDArray | number[] {
@@ -424,7 +243,7 @@ export class Surface extends VGroup {
 
     faces.setFill(this.fillColor, this.fillOpacity);
     faces.setStroke(this.strokeColor, this.strokeWidth, this.strokeOpacity);
-    this.add(...faces.submobjects);
+    this.add(...(faces.submobjects as VMobject[]));
 
     if (this.checkerboardColors) {
       this.setFillByCheckerboard(...this.checkerboardColors);
@@ -437,7 +256,7 @@ export class Surface extends VGroup {
     const nColors = colors.length;
     for (const face of this.listOfFaces) {
       const cIndex = (face.uIndex + face.vIndex) % nColors;
-      face.setFill(colors[cIndex]);
+      face.setFill(ManimColor.parse(colors[cIndex]) as ManimColor);
     }
     return this;
   }
@@ -517,6 +336,45 @@ export class Surface extends VGroup {
     }
 
     return this;
+  }
+}
+
+// ─── ParametricSurface ──────────────────────────────────────
+
+export interface ParametricSurfaceOptions extends Omit<SurfaceOptions, "uRange" | "vRange" | "resolution"> {
+  uRange?: [number, number];
+  vRange?: [number, number];
+  resolution?: number | [number, number];
+}
+
+/**
+ * A Surface generated by a user-defined parametric function (u, v) → (x, y, z).
+ *
+ * TypeScript port of manim.mobject.three_d.three_dimensions.ParametricSurface
+ *
+ * Python Manim reference:
+ *   class ParametricSurface(Surface):
+ *     def uv_func(self, u, v): return self.func(u, v)
+ */
+export class ParametricSurface extends Surface {
+  readonly parametricFunc: (u: number, v: number) => Point3D | number[];
+
+  constructor(
+    func: (u: number, v: number) => Point3D | number[],
+    options: ParametricSurfaceOptions = {},
+  ) {
+    super(func, {
+      ...options,
+      uRange: options.uRange ?? [-1, 1],
+      vRange: options.vRange ?? [-1, 1],
+      resolution: options.resolution ?? [32, 32],
+    });
+    this.parametricFunc = func;
+  }
+
+  /** Mirror of Python's uv_func — delegates to the user-supplied func. */
+  uvFunc(u: number, v: number): Point3D | number[] {
+    return this.parametricFunc(u, v);
   }
 }
 
@@ -612,13 +470,16 @@ export class Cube extends VGroup {
 
   constructor(options: CubeOptions = {}) {
     const fillColor = options.fillColor ?? BLUE;
-    super({
-      fillColor,
-      fillOpacity: options.fillOpacity ?? 0.75,
-      strokeWidth: options.strokeWidth ?? 0,
-      color: options.color,
-      name: options.name,
-    });
+    super();
+    this.fillColor = ManimColor.parse(fillColor) as ManimColor;
+    this.fillOpacity = options.fillOpacity ?? 0.75;
+    this.strokeWidth = options.strokeWidth ?? 0;
+    if (options.color !== undefined) {
+      this.setColor(ManimColor.parse(options.color) as ManimColor);
+    }
+    if (options.name !== undefined) {
+      this.name = options.name;
+    }
     this.sideLength = options.sideLength ?? 2;
     // Mobject base constructor called generatePoints() before sideLength
     // was set. Clear and regenerate now that sideLength is initialized.
@@ -631,9 +492,9 @@ export class Cube extends VGroup {
     for (const vect of directions) {
       const face = new Square({
         sideLength: this.sideLength,
-        shadeIn3d: true,
-        jointType: LineJointType.BEVEL,
       });
+      (face as VMobject & { shadeIn3d?: boolean; jointType?: number }).shadeIn3d = true;
+      (face as VMobject & { jointType?: number }).jointType = LineJointType.BEVEL;
       face.flip();
       const shiftVec = (OUT as NDArray).multiply(this.sideLength / 2.0);
       face.shift(shiftVec as Point3D);
@@ -817,12 +678,8 @@ export class Cone extends Surface {
       normalizedDirection.multiply(this.newHeight),
     ) as Point3D;
 
-    this.startPoint = new VectorizedPoint(
-      start.toArray() as number[],
-    );
-    this.endPoint = new VectorizedPoint(
-      end.toArray() as number[],
-    );
+    this.startPoint = new VectorizedPoint(start);
+    this.endPoint = new VectorizedPoint(end);
     this.add(this.startPoint, this.endPoint);
   }
 }
@@ -893,18 +750,18 @@ export class Cylinder extends Surface {
       radius: this.radius,
       color,
       fillOpacity: opacity,
-      shadeIn3d: true,
       strokeWidth: 0,
     });
+    (this.baseTop as VMobject & { shadeIn3d?: boolean }).shadeIn3d = true;
     this.baseTop.shift((IN as NDArray).multiply(this.uRange[1]) as Point3D);
 
     this.baseBottom = new Circle({
       radius: this.radius,
       color,
       fillOpacity: opacity,
-      shadeIn3d: true,
       strokeWidth: 0,
     });
+    (this.baseBottom as VMobject & { shadeIn3d?: boolean }).shadeIn3d = true;
     this.baseBottom.shift((IN as NDArray).multiply(this.uRange[0]) as Point3D);
 
     this.add(this.baseTop, this.baseBottom);
@@ -1129,9 +986,7 @@ export class Arrow3D extends Line3D {
       height: arrowHeight,
     });
     this.cone.shift(endArr as Point3D);
-    this.endPoint = new VectorizedPoint(
-      (endArr as NDArray).toArray() as number[],
-    );
+    this.endPoint = new VectorizedPoint(endArr as Point3D);
     this.add(this.endPoint, this.cone);
     this.setColor(ManimColor.parse(color) as ManimColor);
   }

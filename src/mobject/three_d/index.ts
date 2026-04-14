@@ -21,6 +21,7 @@ export {
 export {
   ThreeDVMobject,
   Surface,
+  ParametricSurface,
   Sphere,
   Dot3D,
   Cube,
@@ -35,6 +36,7 @@ export {
 export type {
   ThreeDVMobjectOptions,
   SurfaceOptions,
+  ParametricSurfaceOptions,
   SphereOptions,
   Dot3DOptions,
   CubeOptions,

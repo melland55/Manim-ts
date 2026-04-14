@@ -30,7 +30,7 @@ import {
   DEFAULT_DOT_RADIUS,
 } from "../../../constants/constants.js";
 import { config } from "../../../_config/index.js";
-import { VMobject } from "../../types/index.js";
+import { VMobject, VGroup, VDict } from "../../types/index.js";
 import type { VMobjectOptions } from "../../types/index.js";
 import { Mobject } from "../../mobject/index.js";
 import { Line, Circle, Polygon, RegularPolygon } from "../../geometry/index.js";
@@ -62,36 +62,6 @@ import { binarySearch } from "../../../utils/simple_functions/index.js";
 import { angleOfVector } from "../../../utils/space_ops/index.js";
 import { interpolate } from "../../../utils/bezier/index.js";
 import type { IColor } from "../../../core/types.js";
-
-// ─── VGroup stub ──────────────────────────────────────────────
-
-class VGroup extends VMobject {
-  constructor(...vmobjects: Mobject[]) {
-    super();
-    if (vmobjects.length > 0) {
-      this.add(...vmobjects);
-    }
-  }
-}
-
-// ─── VDict stub ───────────────────────────────────────────────
-
-class VDict extends VMobject {
-  private _entries: Map<string, Mobject> = new Map();
-
-  getEntry(key: string): Mobject | undefined {
-    return this._entries.get(key);
-  }
-
-  setEntry(key: string, value: Mobject): void {
-    this._entries.set(key, value);
-    this.add(value);
-  }
-
-  getEntries(): Map<string, Mobject> {
-    return this._entries;
-  }
-}
 
 // ─── Options interfaces ───────────────────────────────────────
 
@@ -383,7 +353,7 @@ export class CoordinateSystem extends VMobject {
         axis.addNumbers({ xValues: vals });
         labels = axis.numbers;
       }
-      coordLabels.add(labels as unknown as Mobject);
+      coordLabels.add(labels as unknown as VMobject);
     }
 
     (this as unknown as Record<string, unknown>)["coordinateLabels"] = coordLabels;
@@ -783,14 +753,14 @@ export class CoordinateSystem extends VMobject {
 
     const tLabelGroup = new VGroup();
 
-    const triangle = new RegularPolygon({ n: 3 });
+    const triangle = new RegularPolygon(3);
     triangle.scale(triangleSize / (triangle.getHeight() || 1));
     triangle.moveTo(this.coordsToPoint(xVal, 0), UP as Point3D);
 
     if (labelInput != null) {
       const tLabel = createLabelTex(this.xAxis, labelInput);
       tLabel.nextTo(triangle, DOWN as Point3D);
-      tLabelGroup.add(tLabel);
+      tLabelGroup.add(tLabel as unknown as VMobject);
     }
 
     const vLine = this.getVerticalLine(this.i2gp(xVal, graph));
@@ -870,7 +840,7 @@ export class Axes extends CoordinateSystem {
     this.xAxis = this._createAxis(this.xRange, this.xAxisConfig, this.xLength!);
     const yAxis = this._createAxis(this.yRange, this.yAxisConfig, this.yLength!);
 
-    this.axes = new VGroup(this.xAxis as unknown as Mobject, yAxis as unknown as Mobject);
+    this.axes = new VGroup(this.xAxis as unknown as VMobject, yAxis as unknown as VMobject);
     this.add(...this.axes.submobjects);
 
     // Find center point on each axis
@@ -996,8 +966,8 @@ export class Axes extends CoordinateSystem {
     yLabel: number | string | Mobject = "y",
   ): VGroup {
     this.axisLabels = new VGroup(
-      this.getXAxisLabel(xLabel),
-      this.getYAxisLabel(yLabel),
+      this.getXAxisLabel(xLabel) as unknown as VMobject,
+      this.getYAxisLabel(yLabel) as unknown as VMobject,
     );
     return this.axisLabels;
   }
@@ -1036,7 +1006,7 @@ export class Axes extends CoordinateSystem {
       }
     }
 
-    lineGraph.setEntry("line_graph", graphLine);
+    lineGraph.addEntry("line_graph", graphLine);
 
     if (addVertexDots) {
       const vertexDots = new VGroup();
@@ -1045,7 +1015,7 @@ export class Axes extends CoordinateSystem {
         dot.moveTo(vertex);
         vertexDots.add(dot);
       }
-      lineGraph.setEntry("vertex_dots", vertexDots);
+      lineGraph.addEntry("vertex_dots", vertexDots);
     }
 
     return lineGraph;
@@ -1138,8 +1108,8 @@ export class ThreeDAxes extends Axes {
       ),
     );
 
-    this.axes.add(zAxis as unknown as Mobject);
-    this.add(zAxis as unknown as Mobject);
+    this.axes.add(zAxis as unknown as VMobject);
+    this.add(zAxis as unknown as VMobject);
     this.zAxis = zAxis;
   }
 
@@ -1187,9 +1157,9 @@ export class ThreeDAxes extends Axes {
     zLabel: number | string | Mobject = "z",
   ): VGroup {
     this.axisLabels = new VGroup(
-      this.getXAxisLabel(xLabel),
-      this.getYAxisLabel(yLabel),
-      this.getZAxisLabel(zLabel),
+      this.getXAxisLabel(xLabel) as unknown as VMobject,
+      this.getYAxisLabel(yLabel) as unknown as VMobject,
+      this.getZAxisLabel(zLabel) as unknown as VMobject,
     );
     return this.axisLabels;
   }
@@ -1321,12 +1291,12 @@ export class NumberPlane extends Axes {
     this.yLines = yLines1;
 
     const lines1 = new VGroup(
-      ...xLines1.submobjects,
-      ...yLines1.submobjects,
+      ...(xLines1.submobjects as unknown as VMobject[]),
+      ...(yLines1.submobjects as unknown as VMobject[]),
     );
     const lines2 = new VGroup(
-      ...xLines2.submobjects,
-      ...yLines2.submobjects,
+      ...(xLines2.submobjects as unknown as VMobject[]),
+      ...(yLines2.submobjects as unknown as VMobject[]),
     );
 
     return [lines1, lines2];
@@ -1571,12 +1541,12 @@ export class PolarPlane extends Axes {
     }
 
     const lines1 = new VGroup(
-      ...rlines1.submobjects,
-      ...alines1.submobjects,
+      ...(rlines1.submobjects as unknown as VMobject[]),
+      ...(alines1.submobjects as unknown as VMobject[]),
     );
     const lines2 = new VGroup(
-      ...rlines2.submobjects,
-      ...alines2.submobjects,
+      ...(rlines2.submobjects as unknown as VMobject[]),
+      ...(alines2.submobjects as unknown as VMobject[]),
     );
 
     return [lines1, lines2];
@@ -1637,9 +1607,9 @@ export class PolarPlane extends Axes {
       }
     }
 
-    const aMobs = new VGroup(...aTex);
+    const aMobs = new VGroup(...(aTex as unknown as VMobject[]));
     this.coordinateLabels = new VGroup(
-      this.getXAxis().numbers as unknown as Mobject,
+      this.getXAxis().numbers as unknown as VMobject,
       aMobs,
     );
     return this.coordinateLabels;
@@ -1775,7 +1745,7 @@ export class ComplexPlane extends NumberPlane {
         value = z.real;
       }
       const numberMob = axis.getNumberMobject(value);
-      coordLabels.add(numberMob);
+      coordLabels.add(numberMob as unknown as VMobject);
     }
     (this as unknown as Record<string, unknown>)["coordinateLabels"] = coordLabels;
     return coordLabels;

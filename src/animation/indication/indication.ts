@@ -41,174 +41,10 @@ import { Homotopy } from "../movement/index.js";
 import { Transform } from "../transform/index.js";
 import { UpdateFromFunc } from "../updaters/index.js";
 import { Mobject } from "../../mobject/mobject/index.js";
-
-// ─── Dependency stubs for unconverted geometry module ────────
-// TODO: Replace with real imports once mobject.geometry is converted.
-
-class VMobjectStub extends Mobject {
-  fillColor: ManimColor;
-  fillOpacity: number;
-  strokeColor: ManimColor;
-  strokeOpacity: number;
-  strokeWidth: number;
-
-  constructor(options: {
-    fillColor?: ParsableManimColor;
-    fillOpacity?: number;
-    strokeColor?: ParsableManimColor;
-    strokeOpacity?: number;
-    strokeWidth?: number;
-    color?: ParsableManimColor;
-    name?: string;
-    zIndex?: number;
-  } = {}) {
-    super({ color: options.color, name: options.name, zIndex: options.zIndex });
-    this.fillColor = options.fillColor
-      ? ManimColor.parse(options.fillColor) as ManimColor
-      : new ManimColor("#FFFFFF");
-    this.fillOpacity = options.fillOpacity ?? 0.0;
-    this.strokeColor = options.strokeColor
-      ? ManimColor.parse(options.strokeColor) as ManimColor
-      : new ManimColor("#FFFFFF");
-    this.strokeOpacity = options.strokeOpacity ?? 1.0;
-    this.strokeWidth = options.strokeWidth ?? DEFAULT_STROKE_WIDTH;
-  }
-
-  setFill(options?: { color?: ParsableManimColor; opacity?: number }): this {
-    if (options?.color != null) {
-      this.fillColor = ManimColor.parse(options.color) as ManimColor;
-    }
-    if (options?.opacity != null) {
-      this.fillOpacity = options.opacity;
-    }
-    return this;
-  }
-
-  setStroke(options?: { color?: ParsableManimColor; width?: number; opacity?: number }): this {
-    if (options?.color != null) {
-      this.strokeColor = ManimColor.parse(options.color) as ManimColor;
-    }
-    if (options?.width != null) {
-      this.strokeWidth = options.width;
-    }
-    if (options?.opacity != null) {
-      this.strokeOpacity = options.opacity;
-    }
-    return this;
-  }
-
-  getStrokeWidth(): number {
-    return this.strokeWidth;
-  }
-
-  pointwiseBecomePartial(_other: IMobject, _a: number, _b: number): void {
-    // Stub — real implementation in VMobject module
-  }
-}
-
-class VGroupStub extends VMobjectStub {
-  override add(...mobjects: Mobject[]): this {
-    for (const m of mobjects) {
-      this.submobjects.push(m);
-    }
-    return this;
-  }
-}
-
-class DotStub extends VMobjectStub {
-  radius: number;
-
-  constructor(options: {
-    point?: Point3D;
-    radius?: number;
-    strokeWidth?: number;
-    fillOpacity?: number;
-    fillColor?: ParsableManimColor;
-    strokeColor?: ParsableManimColor;
-    color?: ParsableManimColor;
-  } = {}) {
-    super({
-      fillColor: options.fillColor ?? options.color,
-      fillOpacity: options.fillOpacity ?? 1.0,
-      strokeWidth: options.strokeWidth ?? 0,
-      strokeColor: options.strokeColor,
-      color: options.color,
-    });
-    this.radius = options.radius ?? 0.08;
-    if (options.point) {
-      this.moveTo(options.point);
-    }
-  }
-}
-
-class CircleStub extends VMobjectStub {
-  _radius: number;
-
-  constructor(options: {
-    radius?: number;
-    color?: ParsableManimColor;
-    strokeWidth?: number;
-  } = {}) {
-    super({
-      color: options.color,
-      strokeWidth: options.strokeWidth ?? DEFAULT_STROKE_WIDTH,
-    });
-    this._radius = options.radius ?? 1.0;
-  }
-
-  surroundMobject(mobject: IMobject, bufferFactor = 1.2): this {
-    const w = mobject.getWidth();
-    const h = mobject.getHeight();
-    const diameter = Math.max(w, h) * bufferFactor;
-    this._radius = diameter / 2;
-    this.moveTo(mobject.getCenter());
-    return this;
-  }
-
-  get circleWidth(): number {
-    return this._radius * 2;
-  }
-}
-
-class LineStub extends VMobjectStub {
-  constructor(start: Point3D, end: Point3D, options: {
-    color?: ParsableManimColor;
-    strokeWidth?: number;
-  } = {}) {
-    super({
-      color: options.color,
-      strokeWidth: options.strokeWidth,
-    });
-    this.points = np.vstack([start, end]);
-  }
-}
-
-class SurroundingRectangleStub extends VMobjectStub {
-  constructor(mobject: IMobject, options: {
-    color?: ParsableManimColor;
-    buff?: number;
-    strokeWidth?: number;
-  } = {}) {
-    super({
-      color: options.color,
-      strokeWidth: options.strokeWidth ?? DEFAULT_STROKE_WIDTH,
-    });
-    const buff = options.buff ?? SMALL_BUFF;
-    const center = mobject.getCenter();
-    const w = mobject.getWidth() + 2 * buff;
-    const h = mobject.getHeight() + 2 * buff;
-    const cArr = center.toArray() as number[];
-    const cx = cArr[0];
-    const cy = cArr[1];
-    const cz = cArr[2];
-    this.points = np.array([
-      [cx - w / 2, cy - h / 2, cz],
-      [cx + w / 2, cy - h / 2, cz],
-      [cx + w / 2, cy + h / 2, cz],
-      [cx - w / 2, cy + h / 2, cz],
-    ]);
-  }
-}
+import { VMobject as VMobjectStub, VGroup as VGroupStub } from "../../mobject/types/index.js";
+import { Dot as DotStub, Circle as CircleStub } from "../../mobject/geometry/arc/index.js";
+import { Line as LineStub } from "../../mobject/geometry/line/index.js";
+import { SurroundingRectangle as SurroundingRectangleStub } from "../../mobject/geometry/shape_matchers/index.js";
 
 // ─── Type helpers ────────────────────────────────────────────
 
@@ -282,7 +118,7 @@ export class FocusOn extends Transform {
 
   override createTarget(): Mobject {
     const littleDot = new DotStub({ radius: 0 });
-    littleDot.setFill({ color: this._focusColor, opacity: this._opacity });
+    littleDot.setFill(this._focusColor, this._opacity);
     const focusPoint = this.focusPoint;
     littleDot.addUpdater((d: Mobject) => {
       if (isMobjectLike(focusPoint)) {
@@ -394,7 +230,7 @@ export class Flash extends AnimationGroup {
       lines.add(line);
     }
     lines.setColor(parsedColor);
-    lines.setStroke({ width: lineStrokeWidth });
+    lines.setStroke(undefined, lineStrokeWidth);
 
     // Create line animations
     const animations: Animation[] = [];
@@ -484,9 +320,7 @@ export class ShowPassingFlashWithThinningStrokeWidth extends AnimationGroup {
     } = options;
 
     const mob = vmobject as unknown as Mobject;
-    const maxStrokeWidth = typeof (mob as unknown as VMobjectStub).getStrokeWidth === "function"
-      ? (mob as unknown as VMobjectStub).getStrokeWidth()
-      : DEFAULT_STROKE_WIDTH;
+    const maxStrokeWidth = (mob as unknown as VMobjectStub).strokeWidth ?? DEFAULT_STROKE_WIDTH;
 
     const maxTimeWidth = timeWidth;
     const animations: Animation[] = [];
@@ -496,7 +330,7 @@ export class ShowPassingFlashWithThinningStrokeWidth extends AnimationGroup {
       const tw = nSegments > 1 ? maxTimeWidth * (1 - i / (nSegments - 1)) : maxTimeWidth;
       const copy = mob.copy();
       if (typeof (copy as unknown as VMobjectStub).setStroke === "function") {
-        (copy as unknown as VMobjectStub).setStroke({ width: sw });
+        (copy as unknown as VMobjectStub).setStroke(undefined, sw);
       }
       animations.push(
         new ShowPassingFlash(copy as unknown as IMobject, { timeWidth: tw, ...rest }),
@@ -699,7 +533,7 @@ export class Circumscribe extends Succession {
     let frame: Mobject;
 
     if (shape === "Rectangle") {
-      frame = new SurroundingRectangleStub(mobject, {
+      frame = new SurroundingRectangleStub(mobject as unknown as Mobject, {
         color: parsedColor,
         buff,
         strokeWidth,
@@ -709,8 +543,8 @@ export class Circumscribe extends Succession {
         color: parsedColor,
         strokeWidth,
       });
-      circle.surroundMobject(mobject, 1);
-      const radius = circle.circleWidth / 2;
+      circle.surround(mobject as unknown as Mobject, 1);
+      const radius = circle.width / 2;
       circle.scale((radius + buff) / radius);
       frame = circle;
     } else {

@@ -244,10 +244,12 @@ export class Brace extends VMobjectFromSVGPath {
   }
 
   getTip(): Point3D {
-    if (config.renderer === "opengl") {
-      return this.points.get([34]) as unknown as Point3D;
-    }
-    return this.points.get([28]) as unknown as Point3D;
+    const idx = config.renderer === "opengl" ? 34 : 28;
+    return np.array([
+      this.points.get([idx, 0]) as number,
+      this.points.get([idx, 1]) as number,
+      this.points.get([idx, 2]) as number,
+    ]) as Point3D;
   }
 
   getDirection(): Point3D {

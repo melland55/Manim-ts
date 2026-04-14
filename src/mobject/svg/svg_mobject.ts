@@ -24,182 +24,17 @@ import { getFullVectorImagePath } from "../../utils/images/index.js";
 import { hashObj } from "../../utils/iterables/index.js";
 import { Mobject } from "../mobject/index.js";
 
-// ─── Dependency stubs ────────────────────────────────────────
-// These classes are not yet converted. We define minimal local stubs
-// so this module compiles. Replace with real imports once the
-// respective modules land.
+import { VMobject, VGroup } from "../types/index.js";
+import type { VMobjectOptions } from "../types/index.js";
+import { Line } from "../geometry/line/index.js";
+import { Circle } from "../geometry/arc/index.js";
+import { Rectangle, RoundedRectangle, Polygon } from "../geometry/polygram/index.js";
 
-// VMobject stub — extends Mobject with vectorized mobject fields
-// TODO: Replace with import from ../types/vectorized_mobject/index.js once converted
-class VMobject extends Mobject {
-  fillColor: ManimColor;
-  fillOpacity: number;
-  strokeColor: ManimColor;
-  strokeOpacity: number;
-  declare strokeWidth: number;
-  nPointsPerCurve: number;
-
-  constructor(options: VMobjectStubOptions = {}) {
-    super({
-      color: options.color ?? undefined,
-      name: options.name,
-    });
-    this.fillColor = options.fillColor
-      ? (ManimColor.parse(options.fillColor) as ManimColor)
-      : (ManimColor.parse("#FFFFFF") as ManimColor);
-    this.fillOpacity = options.fillOpacity ?? 0.0;
-    this.strokeColor = options.strokeColor
-      ? (ManimColor.parse(options.strokeColor) as ManimColor)
-      : (ManimColor.parse("#FFFFFF") as ManimColor);
-    this.strokeOpacity = options.strokeOpacity ?? 1.0;
-    this.strokeWidth = options.strokeWidth ?? 4;
-    this.nPointsPerCurve = 4;
-  }
-
-  setStyle(options: {
-    fillColor?: ParsableManimColor | string | null;
-    fillOpacity?: number | null;
-    strokeColor?: ParsableManimColor | string | null;
-    strokeOpacity?: number | null;
-    strokeWidth?: number | null;
-  }): this {
-    if (options.fillColor != null) {
-      this.fillColor = ManimColor.parse(options.fillColor) as ManimColor;
-    }
-    if (options.fillOpacity != null) {
-      this.fillOpacity = options.fillOpacity;
-    }
-    if (options.strokeColor != null) {
-      this.strokeColor = ManimColor.parse(options.strokeColor) as ManimColor;
-    }
-    if (options.strokeOpacity != null) {
-      this.strokeOpacity = options.strokeOpacity;
-    }
-    if (options.strokeWidth != null) {
-      this.strokeWidth = options.strokeWidth;
-    }
-    return this;
-  }
-
-  hasPoints(): boolean {
-    return this.points.shape[0] > 0;
-  }
-
-  setPointsAsCorners(points: Point3D[]): this {
-    if (points.length <= 1) {
-      this.points = np.zeros([0, 3]);
-      return this;
-    }
-    const allPoints: number[][] = [];
-    for (let i = 0; i < points.length - 1; i++) {
-      const start = (points[i] as NDArray).toArray() as number[];
-      const end = (points[i + 1] as NDArray).toArray() as number[];
-      const cp1 = start.map((v, d) => (2 * v + end[d]) / 3);
-      const cp2 = start.map((v, d) => (v + 2 * end[d]) / 3);
-      allPoints.push(start, cp1, cp2, end);
-    }
-    this.points = np.array(allPoints);
-    return this;
-  }
-
-  getGroupClass(): typeof VGroup {
-    return VGroup;
-  }
-
-  getMobjectTypeClass(): typeof VMobject {
-    return VMobject;
-  }
-
-  appendVectorizedMobject(vmob: VMobject): this {
-    if (vmob.points.shape[0] > 0) {
-      const current = this.points;
-      if (current.shape[0] === 0) {
-        this.points = vmob.points.copy();
-      } else {
-        this.points = np.vstack([current, vmob.points]);
-      }
-    }
-    return this;
-  }
-}
-
-interface VMobjectStubOptions {
-  color?: ParsableManimColor | null;
+// Re-exported options type for brace.ts compatibility
+export interface VMobjectStubOptions extends VMobjectOptions {
   name?: string;
-  fillColor?: ParsableManimColor | null;
-  fillOpacity?: number;
-  strokeColor?: ParsableManimColor | null;
-  strokeOpacity?: number;
-  strokeWidth?: number;
   backgroundStrokeWidth?: number;
   backgroundStrokeColor?: ParsableManimColor | null;
-}
-
-// VGroup stub
-// TODO: Replace with import from ../types/vectorized_mobject/index.js once converted
-class VGroup extends VMobject {
-  constructor(...vmobjects: VMobject[]) {
-    super();
-    if (vmobjects.length > 0) {
-      this.add(...vmobjects);
-    }
-  }
-}
-
-// Geometry stubs — minimal implementations for SVG element conversion
-// TODO: Replace with imports from ../geometry/ once converted
-
-class Line extends Mobject {
-  constructor(
-    public lineStart: Point3D = np.array([0, 0, 0]),
-    public lineEnd: Point3D = np.array([0, 0, 0]),
-  ) {
-    super();
-    this.points = np.array([
-      (lineStart as NDArray).toArray(),
-      (lineEnd as NDArray).toArray(),
-    ]);
-  }
-}
-
-class Circle extends VMobject {
-  radius: number;
-
-  constructor(options: { radius?: number } = {}) {
-    super();
-    this.radius = options.radius ?? 1.0;
-  }
-}
-
-class Rectangle extends VMobject {
-  rectWidth: number;
-  rectHeight: number;
-
-  constructor(options: { width?: number; height?: number } = {}) {
-    super();
-    this.rectWidth = options.width ?? 4.0;
-    this.rectHeight = options.height ?? 2.0;
-  }
-}
-
-class RoundedRectangle extends Rectangle {
-  cornerRadius: number;
-
-  constructor(
-    options: { width?: number; height?: number; cornerRadius?: number } = {},
-  ) {
-    super(options);
-    this.cornerRadius = options.cornerRadius ?? 0.5;
-  }
-}
-
-class Polygon extends VMobject {
-  constructor(...points: Point3D[]) {
-    super();
-    if (points.length > 0) {
-      this.setPointsAsCorners([...points, points[0]]);
-    }
-  }
 }
 
 // ─── SVG hash cache ──────────────────────────────────────────
@@ -250,11 +85,7 @@ export class SVGMobject extends VMobject {
   pathStringConfig: Record<string, unknown>;
 
   constructor(options: SVGMobjectOptions = {}) {
-    super({
-      color: undefined,
-      strokeColor: undefined,
-      fillColor: undefined,
-    });
+    super({});
 
     this.fileName = options.fileName ?? null;
     this.shouldCenter = options.shouldCenter ?? true;
@@ -262,18 +93,18 @@ export class SVGMobject extends VMobject {
     this.svgWidth = options.width !== undefined ? options.width : null;
 
     if (options.color !== undefined) {
-      this.color = ManimColor.parse(options.color) as ManimColor;
+      this.color = options.color as ManimColor;
     }
     this.opacity = options.opacity ?? null;
 
     if (options.fillColor !== undefined && options.fillColor !== null) {
-      this.fillColor = ManimColor.parse(options.fillColor) as ManimColor;
+      this.fillColor = options.fillColor as ManimColor;
     }
     if (options.fillOpacity !== undefined) {
       this.fillOpacity = options.fillOpacity;
     }
     if (options.strokeColor !== undefined && options.strokeColor !== null) {
-      this.strokeColor = ManimColor.parse(options.strokeColor) as ManimColor;
+      this.strokeColor = options.strokeColor as ManimColor;
     }
     if (options.strokeOpacity !== undefined) {
       this.strokeOpacity = options.strokeOpacity;
@@ -302,11 +133,15 @@ export class SVGMobject extends VMobject {
     this.initSvgMobject(useSvgCache);
 
     this.setStyle({
-      fillColor: options.fillColor ?? null,
-      fillOpacity: options.fillOpacity ?? null,
-      strokeColor: options.strokeColor ?? null,
-      strokeOpacity: options.strokeOpacity ?? null,
-      strokeWidth: options.strokeWidth ?? null,
+      fillColor: options.fillColor != null
+        ? (options.fillColor as ManimColor)
+        : undefined,
+      fillOpacity: options.fillOpacity ?? undefined,
+      strokeColor: options.strokeColor != null
+        ? (options.strokeColor as ManimColor)
+        : undefined,
+      strokeOpacity: options.strokeOpacity ?? undefined,
+      strokeWidth: options.strokeWidth ?? undefined,
     });
     this.moveIntoPosition();
   }
@@ -604,11 +439,15 @@ export class SVGMobject extends VMobject {
     const fo = fillOpacityAttr ?? styleMap.get("fill-opacity");
 
     mob.setStyle({
-      strokeWidth: sw != null ? parseFloat(sw) : null,
-      strokeColor: sc != null && sc !== "none" ? sc : null,
-      strokeOpacity: so != null ? parseFloat(so) : null,
-      fillColor: fc != null && fc !== "none" ? fc : null,
-      fillOpacity: fo != null ? parseFloat(fo) : (fc === "none" ? 0 : null),
+      strokeWidth: sw != null ? parseFloat(sw) : undefined,
+      strokeColor: sc != null && sc !== "none"
+        ? (ManimColor.parse(sc) as ManimColor)
+        : undefined,
+      strokeOpacity: so != null ? parseFloat(so) : undefined,
+      fillColor: fc != null && fc !== "none"
+        ? (ManimColor.parse(fc) as ManimColor)
+        : undefined,
+      fillOpacity: fo != null ? parseFloat(fo) : (fc === "none" ? 0 : undefined),
     });
 
     return mob;
@@ -684,7 +523,7 @@ export class SVGMobject extends VMobject {
   ): Polygon {
     const pointsAttr = $(el).attr("points") ?? "";
     const points = parsePointsList(pointsAttr);
-    return new Polygon(...points);
+    return new Polygon(points);
   }
 
   polylineToMobject(
@@ -694,7 +533,13 @@ export class SVGMobject extends VMobject {
     const pointsAttr = $(el).attr("points") ?? "";
     const points = parsePointsList(pointsAttr);
     const vmob = new VMobject();
-    vmob.setPointsAsCorners(points);
+    // Build path as connected line segments (corners)
+    if (points.length >= 2) {
+      vmob.startNewPath(points[0]);
+      for (let i = 1; i < points.length; i++) {
+        vmob.addLineTo(points[i]);
+      }
+    }
     return vmob;
   }
 
@@ -731,6 +576,7 @@ export class VMobjectFromSVGPath extends VMobject {
   longLines: boolean;
   shouldSubdivideSharpCurves: boolean;
   shouldRemoveNullCurves: boolean;
+  nPointsPerCurve: number = 4;
 
   constructor(options: VMobjectFromSVGPathOptions = {}) {
     const {
@@ -993,6 +839,5 @@ function parsePathSegments(pathStr: string): PathSegment[] {
 
 // Re-export stubs for use by brace.ts
 export { VMobject as _VMobjectStub, VGroup as _VGroupStub, Line as _LineStub };
-export { Circle as _CircleStub, Rectangle as _RectangleStub, RoundedRectangle as _RoundedRectangleStub };
-export { Polygon as _PolygonStub };
-export type { VMobjectStubOptions };
+export { Circle as _CircleStub, Rectangle as _RectangleStub };
+export { RoundedRectangle as _RoundedRectangleStub, Polygon as _PolygonStub };

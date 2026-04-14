@@ -30,117 +30,9 @@ import {
   type ParagraphOptions,
 } from "../text_mobject/index.js";
 
-// ─── Dependency stubs ───────────────────────────────────────
-// These mirror the stub patterns used in other converted modules.
-// Replace with real imports once the respective modules are fully converted.
-
-// VMobject stub
-// TODO: Replace with import from ../../types/vectorized_mobject/index.js once converted
-class VMobject extends Mobject {
-  fillColor: ManimColor;
-  fillOpacity: number;
-  strokeColor: ManimColor;
-  strokeOpacity: number;
-  declare strokeWidth: number;
-
-  constructor(
-    options: {
-      color?: ParsableManimColor | null;
-      name?: string;
-      fillColor?: ParsableManimColor | null;
-      fillOpacity?: number;
-      strokeColor?: ParsableManimColor | null;
-      strokeOpacity?: number;
-      strokeWidth?: number;
-    } = {},
-  ) {
-    super({
-      color: options.color ?? undefined,
-      name: options.name,
-    });
-    this.fillColor = options.fillColor
-      ? (ManimColor.parse(options.fillColor) as ManimColor)
-      : (ManimColor.parse("#FFFFFF") as ManimColor);
-    this.fillOpacity = options.fillOpacity ?? 0.0;
-    this.strokeColor = options.strokeColor
-      ? (ManimColor.parse(options.strokeColor) as ManimColor)
-      : (ManimColor.parse("#FFFFFF") as ManimColor);
-    this.strokeOpacity = options.strokeOpacity ?? 1.0;
-    this.strokeWidth = options.strokeWidth ?? 4;
-  }
-}
-
-// VGroup stub
-// TODO: Replace with import from ../../types/vectorized_mobject/index.js once converted
-class VGroup extends VMobject {
-  constructor(...vmobjects: Mobject[]) {
-    super();
-    if (vmobjects.length > 0) {
-      this.add(...vmobjects);
-    }
-  }
-}
-
-// Dot stub
-// TODO: Replace with import from ../../geometry/ once converted
-class Dot extends VMobject {
-  constructor(
-    options: {
-      radius?: number;
-      strokeWidth?: number;
-      fillOpacity?: number;
-      color?: ParsableManimColor | null;
-      point?: Point3D;
-    } = {},
-  ) {
-    super({
-      fillOpacity: options.fillOpacity ?? 1.0,
-      strokeWidth: options.strokeWidth ?? 0,
-      color: options.color,
-    });
-    if (options.point) {
-      this.moveTo(options.point);
-    }
-  }
-}
-
-// SurroundingRectangle stub
-// TODO: Replace with import from ../../geometry/shape_matchers once converted
-class SurroundingRectangle extends VMobject {
-  constructor(
-    mobject: Mobject,
-    options: {
-      buff?: number;
-      fillColor?: ParsableManimColor | null;
-      fillOpacity?: number;
-      strokeColor?: ParsableManimColor | null;
-      strokeWidth?: number;
-      cornerRadius?: number;
-    } = {},
-  ) {
-    super({
-      fillColor: options.fillColor,
-      fillOpacity: options.fillOpacity ?? 1,
-      strokeColor: options.strokeColor,
-      strokeWidth: options.strokeWidth ?? DEFAULT_STROKE_WIDTH,
-    });
-    const buff = options.buff ?? SMALL_BUFF;
-    const center = mobject.getCenter();
-    const w = mobject.getWidth() + 2 * buff;
-    const h = mobject.getHeight() + 2 * buff;
-    const cArr = center.toArray() as number[];
-    const cx = cArr[0];
-    const cy = cArr[1];
-    const cz = cArr[2];
-    // Store 4 corner points as a rectangle
-    this.points = np.array([
-      [cx - w / 2, cy - h / 2, cz],
-      [cx + w / 2, cy - h / 2, cz],
-      [cx + w / 2, cy + h / 2, cz],
-      [cx - w / 2, cy + h / 2, cz],
-    ]);
-  }
-}
+import { VMobject, VGroup } from "../../types/index.js";
+import { Dot } from "../../geometry/arc/index.js";
+import { SurroundingRectangle } from "../../geometry/shape_matchers/index.js";
 
 // ─── highlight.js style → color map ─────────────────────────
 
@@ -532,17 +424,17 @@ export class Code extends VMobject {
     if (background === "rectangle") {
       this.background = new SurroundingRectangle(this, {
         buff: bgConfig.buff,
-        fillColor: bgConfig.fillColor,
+        fillColor: ManimColor.parse(bgConfig.fillColor) as ManimColor,
         fillOpacity: bgConfig.fillOpacity,
-        strokeColor: bgConfig.strokeColor,
+        strokeColor: ManimColor.parse(bgConfig.strokeColor) as ManimColor,
         strokeWidth: bgConfig.strokeWidth,
         cornerRadius: bgConfig.cornerRadius,
       });
     } else if (background === "window") {
       const buttons = new VGroup(
-        new Dot({ radius: 0.1, strokeWidth: 0, color: "#ff5f56" }),
-        new Dot({ radius: 0.1, strokeWidth: 0, color: "#ffbd2e" }),
-        new Dot({ radius: 0.1, strokeWidth: 0, color: "#27c93f" }),
+        new Dot({ radius: 0.1, strokeWidth: 0, color: ManimColor.parse("#ff5f56") as ManimColor }),
+        new Dot({ radius: 0.1, strokeWidth: 0, color: ManimColor.parse("#ffbd2e") as ManimColor }),
+        new Dot({ radius: 0.1, strokeWidth: 0, color: ManimColor.parse("#27c93f") as ManimColor }),
       );
       buttons.arrange(RIGHT, 0.1);
       buttons.nextTo(this, UP, { buff: 0.1 });
@@ -553,9 +445,9 @@ export class Code extends VMobject {
         new VGroup(this, buttons),
         {
           buff: bgConfig.buff,
-          fillColor: bgConfig.fillColor,
+          fillColor: ManimColor.parse(bgConfig.fillColor) as ManimColor,
           fillOpacity: bgConfig.fillOpacity,
-          strokeColor: bgConfig.strokeColor,
+          strokeColor: ManimColor.parse(bgConfig.strokeColor) as ManimColor,
           strokeWidth: bgConfig.strokeWidth,
           cornerRadius: bgConfig.cornerRadius,
         },

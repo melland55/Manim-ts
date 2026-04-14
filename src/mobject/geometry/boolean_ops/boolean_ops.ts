@@ -118,6 +118,38 @@ function multiPolygonToVMobject(
   vmobject: VMobject,
   multiPoly: MultiPolygon,
 ): void {
+  // ── DEBUG: dump topology of the polygon-clipping result ──────
+  // Enable by setting `globalThis.__BOOL_DEBUG = true` before constructing
+  // the boolean op. Logs polygon count, rings per polygon, vertex count
+  // per ring, and signed area (positive = CCW, negative = CW).
+  const dbg = (globalThis as Record<string, unknown>).__BOOL_DEBUG;
+  if (dbg) {
+    // eslint-disable-next-line no-console
+    console.log(`[bool-debug] multiPoly: ${multiPoly.length} polygon(s)`);
+    multiPoly.forEach((polygon, pi) => {
+      // eslint-disable-next-line no-console
+      console.log(`[bool-debug]   polygon[${pi}]: ${polygon.length} ring(s)`);
+      polygon.forEach((ring, ri) => {
+        let area = 0;
+        for (let i = 0; i < ring.length; i++) {
+          const [x1, y1] = ring[i];
+          const [x2, y2] = ring[(i + 1) % ring.length];
+          area += x1 * y2 - x2 * y1;
+        }
+        area /= 2;
+        const winding = area > 0 ? "CCW" : area < 0 ? "CW" : "degenerate";
+        const closed =
+          ring.length > 0 &&
+          ring[0][0] === ring[ring.length - 1][0] &&
+          ring[0][1] === ring[ring.length - 1][1];
+        // eslint-disable-next-line no-console
+        console.log(
+          `[bool-debug]     ring[${ri}]: ${ring.length} verts, area=${area.toFixed(3)} (${winding}), closed=${closed}`,
+        );
+      });
+    });
+  }
+
   for (const polygon of multiPoly) {
     for (const ring of polygon) {
       if (ring.length < 2) continue;

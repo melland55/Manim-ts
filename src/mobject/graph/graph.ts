@@ -18,116 +18,12 @@ import {
 import { BLACK, WHITE } from "../../utils/color/manim_colors.js";
 import { Mobject, Group, overrideAnimate } from "../mobject/index.js";
 import type { IScene } from "../../core/types.js";
-
-// ─── Dependency stubs ────────────────────────────────────────
-// These classes are not yet converted. We define minimal local stubs
-// so this module compiles. Replace with real imports once the
-// respective modules land.
-
-// TODO: Replace with import from ../types/vectorized_mobject/index.js once converted
-class VMobject extends Mobject {
-  fillColor: ManimColor;
-  fillOpacity: number;
-  strokeColor: ManimColor;
-  strokeOpacity: number;
-  declare strokeWidth: number;
-
-  constructor(options: VMobjectStubOptions = {}) {
-    super({
-      color: options.color ?? undefined,
-      name: options.name,
-    });
-    this.fillColor = options.fillColor
-      ? (ManimColor.parse(options.fillColor) as ManimColor)
-      : (ManimColor.parse("#FFFFFF") as ManimColor);
-    this.fillOpacity = options.fillOpacity ?? 0.0;
-    this.strokeColor = options.strokeColor
-      ? (ManimColor.parse(options.strokeColor) as ManimColor)
-      : (ManimColor.parse("#FFFFFF") as ManimColor);
-    this.strokeOpacity = options.strokeOpacity ?? 1.0;
-    this.strokeWidth = options.strokeWidth ?? 4;
-  }
-}
-
-interface VMobjectStubOptions {
-  color?: ParsableManimColor;
-  name?: string;
-  fillColor?: ParsableManimColor;
-  fillOpacity?: number;
-  strokeColor?: ParsableManimColor;
-  strokeOpacity?: number;
-  strokeWidth?: number;
-}
-
-// TODO: Replace with import from ../geometry/arc.js once converted
-class Dot extends VMobject {
-  constructor(options: Record<string, unknown> = {}) {
-    const { point, ...rest } = options;
-    super(rest as VMobjectStubOptions);
-    if (point) {
-      this.moveTo(point as Point3D);
-    }
-  }
-}
-
-// TODO: Replace with import from ../geometry/arc.js once converted
-class LabeledDot extends Dot {
-  constructor(options: Record<string, unknown> = {}) {
-    const { label, ...rest } = options;
-    super(rest);
-  }
-}
-
-// TODO: Replace with import from ../geometry/line.js once converted
-class Line extends Mobject {
-  constructor(options: Record<string, unknown> = {}) {
-    const { start, end, z_index, zIndex, ...rest } = options;
-    super({
-      ...(rest as Record<string, unknown>),
-      zIndex: (zIndex ?? z_index ?? 0) as number,
-    });
-  }
-
-  setPointsByEnds(
-    _start: Point3D | Mobject,
-    _end: Point3D | Mobject,
-    _options?: { buff?: number; pathArc?: number },
-  ): this {
-    return this;
-  }
-
-  addTip(_tipConfig?: Record<string, unknown>): this {
-    return this;
-  }
-
-  popTips(): Mobject[] {
-    return [];
-  }
-}
-
-// TODO: Replace with import from ../text/tex_mobject.js once converted
-class MathTex extends Mobject {
-  constructor(texString: string | number, options: Record<string, unknown> = {}) {
-    super({
-      name: String(texString),
-      ...options,
-    });
-  }
-}
-
-// TODO: Replace with import from ../animation/composition once converted
-class AnimationGroup {
-  constructor(..._args: unknown[]) {}
-}
-
-// TODO: Replace with import from ../animation/creation once converted
-class Create {
-  constructor(_mob: Mobject, _options?: Record<string, unknown>) {}
-}
-
-class Uncreate {
-  constructor(_mob: Mobject, _options?: Record<string, unknown>) {}
-}
+import { VMobject } from "../types/index.js";
+import { Dot, LabeledDot } from "../geometry/arc/index.js";
+import { Line } from "../geometry/line/index.js";
+import { MathTex } from "../text/tex_mobject/index.js";
+import { AnimationGroup } from "../../animation/composition/index.js";
+import { Create, Uncreate } from "../../animation/creation/index.js";
 
 // ─── Types ───────────────────────────────────────────────────
 
@@ -701,7 +597,7 @@ export class GenericGraph extends VMobject {
       for (const v of vertexList) {
         this._labels.set(
           v,
-          new MathTex(v, { color: labelFillColor }),
+          new MathTex([String(v)], { color: labelFillColor }),
         );
       }
     } else {
@@ -861,7 +757,7 @@ export class GenericGraph extends VMobject {
 
     let resolvedLabel: Mobject | null = null;
     if (label === true) {
-      resolvedLabel = new MathTex(vertex, { color: labelFillColor });
+      resolvedLabel = new MathTex([String(vertex)], { color: labelFillColor });
     } else if (this._labels.has(vertex)) {
       resolvedLabel = this._labels.get(vertex)!;
     } else if (label instanceof Mobject) {
@@ -1300,10 +1196,12 @@ export class Graph extends GenericGraph {
       const uMob = graph.vertices.get(u);
       const vMob = graph.vertices.get(v);
       if (uMob && vMob && edge instanceof Line) {
-        edge.setPointsByEnds(uMob.getCenter(), vMob.getCenter(), {
-          buff: (this._edgeConfig.get(ek)?.["buff"] as number) ?? 0,
-          pathArc: (this._edgeConfig.get(ek)?.["pathArc"] as number) ?? 0,
-        });
+        edge.setPointsByEnds(
+          uMob.getCenter(),
+          vMob.getCenter(),
+          (this._edgeConfig.get(ek)?.["buff"] as number) ?? 0,
+          (this._edgeConfig.get(ek)?.["pathArc"] as number) ?? 0,
+        );
       }
     }
   }
@@ -1354,13 +1252,16 @@ export class DiGraph extends GenericGraph {
       const vMob = graph.vertices.get(v);
       if (uMob && vMob && edge instanceof Line) {
         const tips = edge.popTips();
-        const tip = tips.length > 0 ? tips[0] : null;
-        edge.setPointsByEnds(uMob, vMob, {
-          buff: (this._edgeConfig.get(ek)?.["buff"] as number) ?? 0,
-          pathArc: (this._edgeConfig.get(ek)?.["pathArc"] as number) ?? 0,
-        });
+        const tipSubs = tips.submobjects;
+        const tip = tipSubs.length > 0 ? tipSubs[0] : null;
+        edge.setPointsByEnds(
+          uMob,
+          vMob,
+          (this._edgeConfig.get(ek)?.["buff"] as number) ?? 0,
+          (this._edgeConfig.get(ek)?.["pathArc"] as number) ?? 0,
+        );
         if (tip) {
-          edge.addTip({ tip });
+          edge.addTip({ tip: tip as never });
         }
       }
     }

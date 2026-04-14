@@ -19,8 +19,8 @@ import { Mobject, Group } from "../../mobject/index.js";
 import { VMobject } from "../../types/index.js";
 import { RoundedRectangle } from "../polygram/index.js";
 import type { RoundedRectangleOptions } from "../polygram/index.js";
-import { Line } from "../geometry.js";
-import type { LineOptions } from "../geometry.js";
+import { Line } from "../line/index.js";
+import type { LineOptions } from "../line/index.js";
 import { np } from "../../../core/math/index.js";
 import type { NDArray } from "numpy-ts";
 

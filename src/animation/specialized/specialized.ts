@@ -11,12 +11,13 @@ import { linear } from "../../core/math/index.js";
 import { Mobject, Group } from "../../mobject/mobject/index.js";
 import { Restore } from "../transform/index.js";
 import { Animation } from "../animation/animation.js";
+import { AnimationGroup as RealAnimationGroup, LaggedStart as RealLaggedStart } from "../composition/index.js";
 
-// ─── Stub: AnimationGroup & LaggedStart ────────────────────
-// animation.composition is not yet converted. Minimal stubs to
-// unblock this module. Replace with real imports once composition lands.
-
-const DEFAULT_LAGGED_START_LAG_RATIO = 0.05;
+// Re-export real classes as previously-stubbed names
+const AnimationGroup = RealAnimationGroup;
+const LaggedStart = RealLaggedStart;
+type AnimationGroup = RealAnimationGroup;
+type LaggedStart = RealLaggedStart;
 
 interface AnimationGroupOptions {
   group?: IMobject;
@@ -29,7 +30,9 @@ interface AnimationGroupOptions {
   name?: string;
 }
 
-class AnimationGroup extends Animation {
+// Preserve unused stub for reference (unreachable)
+/*
+class _AnimationGroupStubUnused extends Animation {
   animations: IAnimation[];
   group: IMobject;
   protected maxEndTime: number = 0;
@@ -159,17 +162,18 @@ class AnimationGroup extends Animation {
   }
 }
 
-class LaggedStart extends AnimationGroup {
+class _LaggedStartStubUnused extends AnimationGroup {
   constructor(
     animations: IAnimation[],
     options: AnimationGroupOptions = {},
   ) {
     super(animations, {
       ...options,
-      lagRatio: options.lagRatio ?? DEFAULT_LAGGED_START_LAG_RATIO,
+      lagRatio: options.lagRatio ?? 0.05,
     });
   }
 }
+*/
 
 // ─── Broadcast ──────────────────────────────────────────────
 

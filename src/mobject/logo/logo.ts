@@ -33,167 +33,8 @@ import { SpiralIn } from "../../animation/creation/index.js";
 import { FadeIn } from "../../animation/fading/index.js";
 import { easeInOutCubic, smooth } from "../../utils/rate_functions/index.js";
 
-// ─── Dependency stubs ───────────────────────────────────────
-// These classes are not yet converted. Minimal local stubs so this module
-// compiles. Replace with real imports once the respective modules land.
-// TODO: Replace with imports from ../types/vectorized_mobject/ and ../geometry/ once converted
-
-interface VMobjectStubOptions {
-  color?: ParsableManimColor;
-  name?: string;
-  fillColor?: ParsableManimColor;
-  fillOpacity?: number;
-  strokeColor?: ParsableManimColor | null;
-  strokeOpacity?: number;
-  strokeWidth?: number;
-}
-
-class VMobject extends Mobject {
-  fillColor: ManimColor;
-  fillOpacity: number;
-  strokeColor: ManimColor;
-  strokeOpacity: number;
-  declare strokeWidth: number;
-
-  constructor(options: VMobjectStubOptions = {}) {
-    super({
-      color: options.color ?? undefined,
-      name: options.name,
-    });
-    this.fillColor = options.fillColor
-      ? (ManimColor.parse(options.fillColor) as ManimColor)
-      : (ManimColor.parse("#FFFFFF") as ManimColor);
-    this.fillOpacity = options.fillOpacity ?? 0.0;
-    this.strokeColor = options.strokeColor
-      ? (ManimColor.parse(options.strokeColor) as ManimColor)
-      : (ManimColor.parse("#FFFFFF") as ManimColor);
-    this.strokeOpacity = options.strokeOpacity ?? 1.0;
-    this.strokeWidth = options.strokeWidth ?? 4;
-  }
-
-  setFill(color?: ParsableManimColor, opacity?: number | null): this {
-    if (color != null) {
-      this.fillColor = ManimColor.parse(color) as ManimColor;
-    }
-    if (opacity != null) {
-      this.fillOpacity = opacity;
-    }
-    return this;
-  }
-
-  setStyle(options: {
-    fillColor?: ParsableManimColor | string | null;
-    fillOpacity?: number | null;
-    strokeColor?: ParsableManimColor | string | null;
-    strokeOpacity?: number | null;
-    strokeWidth?: number | null;
-  }): this {
-    if (options.fillColor != null) {
-      this.fillColor = ManimColor.parse(options.fillColor) as ManimColor;
-    }
-    if (options.fillOpacity != null) {
-      this.fillOpacity = options.fillOpacity;
-    }
-    if (options.strokeColor != null) {
-      this.strokeColor = ManimColor.parse(options.strokeColor) as ManimColor;
-    }
-    if (options.strokeOpacity != null) {
-      this.strokeOpacity = options.strokeOpacity;
-    }
-    if (options.strokeWidth != null) {
-      this.strokeWidth = options.strokeWidth;
-    }
-    return this;
-  }
-
-  setPointsAsCorners(points: (Point3D | number[])[]): this {
-    if (points.length <= 1) {
-      this.points = np.zeros([0, 3]);
-      return this;
-    }
-    const allPoints: number[][] = [];
-    for (let i = 0; i < points.length - 1; i++) {
-      const start =
-        "toArray" in (points[i] as object)
-          ? ((points[i] as NDArray).toArray() as number[])
-          : (points[i] as number[]);
-      const end =
-        "toArray" in (points[i + 1] as object)
-          ? ((points[i + 1] as NDArray).toArray() as number[])
-          : (points[i + 1] as number[]);
-      const cp1 = start.map((v, d) => (2 * v + end[d]) / 3);
-      const cp2 = start.map((v, d) => (v + 2 * end[d]) / 3);
-      allPoints.push(start, cp1, cp2, end);
-    }
-    this.points = np.array(allPoints);
-    return this;
-  }
-}
-
-class VGroup extends VMobject {
-  constructor(...vmobjects: VMobject[]) {
-    super();
-    if (vmobjects.length > 0) {
-      this.add(...vmobjects);
-    }
-  }
-
-  set width(value: number) {
-    this.scaleToFitWidth(value);
-  }
-
-  get width(): number {
-    return this.getWidth();
-  }
-
-  set height(value: number) {
-    this.scaleToFitHeight(value);
-  }
-
-  get height(): number {
-    return this.getHeight();
-  }
-}
-
-class Circle extends VMobject {
-  radius: number;
-
-  constructor(options: VMobjectStubOptions & { radius?: number } = {}) {
-    super(options);
-    this.radius = options.radius ?? 1.0;
-  }
-}
-
-class Square extends VMobject {
-  sideLength: number;
-
-  constructor(options: VMobjectStubOptions & { sideLength?: number } = {}) {
-    super(options);
-    this.sideLength = options.sideLength ?? 2.0;
-    const s = this.sideLength / 2;
-    this.setPointsAsCorners([
-      [-s, s, 0],
-      [s, s, 0],
-      [s, -s, 0],
-      [-s, -s, 0],
-      [-s, s, 0],
-    ]);
-  }
-}
-
-class Triangle extends VMobject {
-  constructor(options: VMobjectStubOptions = {}) {
-    super(options);
-    const r = 1.0;
-    const points: number[][] = [];
-    for (let i = 0; i < 3; i++) {
-      const angle = (i * 2 * Math.PI) / 3 - Math.PI / 2;
-      points.push([r * Math.cos(angle), r * Math.sin(angle), 0]);
-    }
-    points.push(points[0]);
-    this.setPointsAsCorners(points);
-  }
-}
+import { VMobject, VGroup } from "../types/index.js";
+import { Circle, Square, Triangle } from "../geometry/index.js";
 
 // ─── SVG Path Data ──────────────────────────────────────────
 
@@ -314,24 +155,24 @@ export class ManimBanner extends VGroup {
     );
     // Set fill via setStyle (available on svg_mobject's VMobject)
     (this.M as unknown as VMobject).setStyle({
-      fillColor: this.fontColor,
+      fillColor: ManimColor.parse(this.fontColor) as ManimColor,
       fillOpacity: 1,
     });
     this.M.shift(
       (LEFT as NDArray).multiply(2.25).add((UP as NDArray).multiply(1.5)),
     );
 
-    this.circle = new Circle({ color: logoGreen, fillOpacity: 1 });
+    this.circle = new Circle({ color: ManimColor.parse(logoGreen) as ManimColor, fillOpacity: 1 });
     this.circle.shift(LEFT);
 
-    this.square = new Square({ color: logoBlue, fillOpacity: 1 });
+    this.square = new Square({ color: ManimColor.parse(logoBlue) as ManimColor, fillOpacity: 1 });
     this.square.shift(UP);
 
-    this.triangle = new Triangle({ color: logoRed, fillOpacity: 1 });
+    this.triangle = new Triangle({ color: ManimColor.parse(logoRed) as ManimColor, fillOpacity: 1 });
     this.triangle.shift(RIGHT);
 
     this.shapes = new VGroup(this.triangle, this.square, this.circle);
-    this.add(this.shapes, this.M as unknown as Mobject);
+    this.add(this.shapes, this.M as unknown as VMobject);
     this.moveTo(ORIGIN);
 
     const anim = new VGroup();
@@ -346,13 +187,13 @@ export class ManimBanner extends VGroup {
         tex.nextTo(anim, undefined, { buff: 0.01 });
       }
       tex.alignTo(this.M, DOWN);
-      anim.add(tex as unknown as Mobject);
+      anim.add(tex as unknown as VMobject);
     }
     // Set fill on the anim group and propagate to children
-    anim.setFill(this.fontColor, 1);
+    anim.setFill(ManimColor.parse(this.fontColor) as ManimColor, 1);
     for (const child of anim.submobjects) {
       (child as unknown as VMobject).setStyle({
-        fillColor: this.fontColor,
+        fillColor: ManimColor.parse(this.fontColor) as ManimColor,
         fillOpacity: 1,
       });
     }
@@ -409,7 +250,7 @@ export class ManimBanner extends VGroup {
 
     const lastAnimChild = this.anim.submobjects[this.anim.submobjects.length - 1];
     const mClone = lastAnimChild.copy();
-    this.add(mClone);
+    this.add(mClone as unknown as VMobject);
     mClone.moveTo(this.shapes.getCenter());
 
     this.M.saveState();

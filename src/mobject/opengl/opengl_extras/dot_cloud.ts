@@ -111,10 +111,14 @@ export class TrueDot extends DotCloud {
       ...rest
     } = options;
 
+    // Duck-type NDArray via `.toArray` method — numpy-ts NDArrays are Proxies
+    // whose `has` trap does not expose `shape`, making `"shape" in x` unreliable.
     const centerArr =
-      center instanceof Object && "shape" in center
-        ? (center as NDArray).toArray() as number[]
-        : center as number[];
+      center !== null &&
+      typeof center === "object" &&
+      typeof (center as NDArray).toArray === "function"
+        ? ((center as NDArray).toArray() as number[])
+        : (center as number[]);
 
     super({
       strokeWidth,

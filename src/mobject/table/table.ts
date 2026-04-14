@@ -15,208 +15,13 @@ import { ManimColor } from "../../utils/color/core.js";
 import type { ParsableManimColor } from "../../utils/color/core.js";
 import { BLACK, PURE_YELLOW } from "../../utils/color/manim_colors.js";
 
-// ─── Dependency stubs for unconverted modules ─────────────────
-// These will be replaced with real imports once the respective modules are converted.
-
-class VMobject extends Mobject {
-  fillColor: ManimColor;
-  fillOpacity: number;
-  strokeColor: ManimColor;
-  strokeOpacity: number;
-  strokeWidth: number;
-
-  constructor(options: {
-    fillColor?: ParsableManimColor;
-    fillOpacity?: number;
-    strokeColor?: ParsableManimColor;
-    strokeOpacity?: number;
-    strokeWidth?: number;
-    color?: ParsableManimColor;
-    name?: string;
-    zIndex?: number;
-  } = {}) {
-    super({ color: options.color, name: options.name, zIndex: options.zIndex });
-    this.fillColor = options.fillColor
-      ? ManimColor.parse(options.fillColor) as ManimColor
-      : new ManimColor("#FFFFFF");
-    this.fillOpacity = options.fillOpacity ?? 0.0;
-    this.strokeColor = options.strokeColor
-      ? ManimColor.parse(options.strokeColor) as ManimColor
-      : new ManimColor("#FFFFFF");
-    this.strokeOpacity = options.strokeOpacity ?? 1.0;
-    this.strokeWidth = options.strokeWidth ?? 4;
-  }
-
-  setFill(options?: { color?: ParsableManimColor; opacity?: number }): this {
-    if (options?.color != null) {
-      this.fillColor = ManimColor.parse(options.color) as ManimColor;
-    }
-    if (options?.opacity != null) {
-      this.fillOpacity = options.opacity;
-    }
-    return this;
-  }
-
-  setStroke(options?: { color?: ParsableManimColor; width?: number; opacity?: number }): this {
-    if (options?.color != null) {
-      this.strokeColor = ManimColor.parse(options.color) as ManimColor;
-    }
-    if (options?.width != null) {
-      this.strokeWidth = options.width;
-    }
-    if (options?.opacity != null) {
-      this.strokeOpacity = options.opacity;
-    }
-    return this;
-  }
-}
-
-class VGroup extends VMobject {
-  constructor(...mobjects: Mobject[]) {
-    super();
-    this.add(...mobjects);
-  }
-
-  [Symbol.iterator](): Iterator<Mobject> {
-    let index = 0;
-    const subs = this.submobjects;
-    return {
-      next(): IteratorResult<Mobject> {
-        if (index < subs.length) {
-          return { value: subs[index++], done: false };
-        }
-        return { value: undefined as unknown as Mobject, done: true };
-      },
-    };
-  }
-
-  get length(): number {
-    return this.submobjects.length;
-  }
-
-  at(index: number): Mobject | undefined {
-    if (index < 0) index = this.submobjects.length + index;
-    return this.submobjects[index];
-  }
-}
-
-// Stub for Line (from geometry.line)
-class Line extends VMobject {
-  constructor(start: number[] | Point3D, end: number[] | Point3D, options: Record<string, unknown> = {}) {
-    super(options as { color?: ParsableManimColor; strokeWidth?: number });
-    const s = Array.isArray(start) ? np.array(start) : start as NDArray;
-    const e = Array.isArray(end) ? np.array(end) : end as NDArray;
-    this.points = np.vstack([s, e]);
-    if (options.strokeWidth !== undefined) {
-      this.strokeWidth = options.strokeWidth as number;
-    }
-    if (options.color !== undefined) {
-      this.color = ManimColor.parse(options.color as ParsableManimColor) as ManimColor;
-    }
-    if (options.stroke_width !== undefined) {
-      this.strokeWidth = options.stroke_width as number;
-    }
-  }
-}
-
-// Stub for Polygon (from geometry.polygram)
-class Polygon extends VMobject {
-  constructor(...args: (number[] | Point3D | Record<string, unknown>)[]) {
-    const lastArg = args[args.length - 1];
-    let options: Record<string, unknown> = {};
-    let vertices: (number[] | Point3D)[];
-    if (lastArg && typeof lastArg === "object" && !Array.isArray(lastArg) && !("shape" in (lastArg as object))) {
-      options = lastArg as Record<string, unknown>;
-      vertices = args.slice(0, -1) as (number[] | Point3D)[];
-    } else {
-      vertices = args as (number[] | Point3D)[];
-    }
-    super(options as { color?: ParsableManimColor });
-    const pointArrays = vertices.map((v) =>
-      Array.isArray(v) ? np.array(v) : v as NDArray,
-    );
-    if (pointArrays.length > 0) {
-      this.points = np.vstack(pointArrays);
-    }
-    if (options.color !== undefined) {
-      this.color = ManimColor.parse(options.color as ParsableManimColor) as ManimColor;
-    }
-  }
-}
-
-// Stub for BackgroundRectangle (from geometry.shape_matchers)
-class BackgroundRectangle extends VMobject {
-  originalFillOpacity: number;
-
-  constructor(
-    mobject: Mobject,
-    options: { color?: ParsableManimColor; strokeWidth?: number; strokeOpacity?: number; fillOpacity?: number; buff?: number } = {},
-  ) {
-    super({
-      color: options.color,
-      strokeWidth: options.strokeWidth ?? 0,
-      strokeOpacity: options.strokeOpacity ?? 0,
-      fillOpacity: options.fillOpacity ?? 0.75,
-    });
-    this.originalFillOpacity = this.fillOpacity;
-    if (options.color) {
-      this.fillColor = ManimColor.parse(options.color) as ManimColor;
-    }
-    // Position to match the mobject
-    const buff = options.buff ?? 0;
-    // Copy the bounding box of the mobject (simplified stub)
-    this.points = mobject.points.copy();
-  }
-}
-
-// Stub for Paragraph (from text.text_mobject) — default element_to_mobject
-class Paragraph extends VMobject {
-  text: string;
-
-  constructor(text: string | number, _config?: Record<string, unknown>) {
-    super();
-    this.text = String(text);
-    // Set minimal points so the mobject has geometry
-    this.points = np.array([[0, 0, 0], [0.1 * this.text.length, 0, 0], [0.1 * this.text.length, 0.3, 0], [0, 0.3, 0]]);
-  }
-}
-
-// Stub for MathTex (from text.tex_mobject)
-class MathTex extends VMobject {
-  texString: string;
-
-  constructor(texString: string | number, _config?: Record<string, unknown>) {
-    super();
-    this.texString = String(texString);
-    this.points = np.array([[0, 0, 0], [0.1 * this.texString.length, 0, 0], [0.1 * this.texString.length, 0.3, 0], [0, 0.3, 0]]);
-  }
-}
-
-// Stub for Integer (from text.numbers)
-class IntegerMobject extends VMobject {
-  number: number;
-
-  constructor(value: number | string, _config?: Record<string, unknown>) {
-    super();
-    this.number = Math.round(Number(value));
-    const text = String(this.number);
-    this.points = np.array([[0, 0, 0], [0.1 * text.length, 0, 0], [0.1 * text.length, 0.3, 0], [0, 0.3, 0]]);
-  }
-}
-
-// Stub for DecimalNumber (from text.numbers)
-class DecimalNumberMobject extends VMobject {
-  number: number;
-  numDecimalPlaces: number;
-
-  constructor(value: number | string, config: Record<string, unknown> = {}) {
-    super();
-    this.number = Number(value);
-    this.numDecimalPlaces = (config.num_decimal_places as number) ?? (config.numDecimalPlaces as number) ?? 1;
-    const text = this.number.toFixed(this.numDecimalPlaces);
-    this.points = np.array([[0, 0, 0], [0.1 * text.length, 0, 0], [0.1 * text.length, 0.3, 0], [0, 0.3, 0]]);
-  }
-}
+import { VMobject, VGroup } from "../types/index.js";
+import { Line } from "../geometry/line/index.js";
+import { Polygon } from "../geometry/polygram/index.js";
+import { BackgroundRectangle } from "../geometry/shape_matchers/index.js";
+import { Paragraph } from "../text/text_mobject/index.js";
+import { MathTex } from "../text/tex_mobject/index.js";
+import { Integer as IntegerMobject, DecimalNumber as DecimalNumberMobject } from "../text/numbers/index.js";
 
 // Stub for Animation classes
 class Animation {
@@ -329,8 +134,8 @@ export class Table extends VGroup {
       entriesBackgroundColor = BLACK,
       includeBackgroundRectangle = false,
       backgroundRectangleColor = BLACK,
-      elementToMobject = (item: number | string | VMobject, ...args: unknown[]) =>
-        new Paragraph(item as string | number, args[0] as Record<string, unknown> | undefined),
+      elementToMobject = (item: number | string | VMobject, ..._args: unknown[]) =>
+        new Paragraph(String(item)) as VMobject,
       elementToMobjectConfig = {},
       arrangeInGridConfig = {},
       lineConfig = {},
@@ -455,7 +260,7 @@ export class Table extends VGroup {
     const rows = this.getRows();
 
     if (this.includeOuterLines) {
-      const anchorTop = (rows.at(0)!.getTop().get([1]) as number) + 0.5 * this.vBuff;
+      const anchorTop = (rows.submobjects[0].getTop().get([1]) as number) + 0.5 * this.vBuff;
       const line1 = new Line(
         [anchorLeft, anchorTop, 0],
         [anchorRight, anchorTop, 0],
@@ -464,7 +269,7 @@ export class Table extends VGroup {
       lineGroup.add(line1);
       this.add(line1);
 
-      const anchorBottom = (rows.at(-1)!.getBottom().get([1]) as number) - 0.5 * this.vBuff;
+      const anchorBottom = (rows.submobjects[rows.submobjects.length - 1].getBottom().get([1]) as number) - 0.5 * this.vBuff;
       const line2 = new Line(
         [anchorLeft, anchorBottom, 0],
         [anchorRight, anchorBottom, 0],
@@ -662,7 +467,7 @@ export class Table extends VGroup {
       (row.getBottom().get([1]) as number) - this.vBuff / 2,
       0,
     ];
-    return new Polygon(edgeUL, edgeUR, edgeDR, edgeDL, options);
+    return new Polygon([edgeUL, edgeUR, edgeDR, edgeDL], options);
   }
 
   getHighlightedCell(
@@ -750,8 +555,8 @@ export class MathTable extends Table {
     options: MathTableOptions = {},
   ) {
     const {
-      elementToMobject = (item: number | string | VMobject, ...args: unknown[]) =>
-        new MathTex(item as number | string, args[0] as Record<string, unknown> | undefined),
+      elementToMobject = (item: number | string | VMobject, ..._args: unknown[]) =>
+        new MathTex([String(item)]) as VMobject,
       ...rest
     } = options;
     super(table, { elementToMobject, ...rest });
@@ -789,8 +594,8 @@ export class IntegerTable extends Table {
     options: IntegerTableOptions = {},
   ) {
     const {
-      elementToMobject = (item: number | string | VMobject, ...args: unknown[]) =>
-        new IntegerMobject(item as number | string, args[0] as Record<string, unknown> | undefined),
+      elementToMobject = (item: number | string | VMobject, ..._args: unknown[]) =>
+        new IntegerMobject({ number: Number(item) }) as VMobject,
       ...rest
     } = options;
     super(table, { elementToMobject, ...rest });
@@ -810,8 +615,8 @@ export class DecimalTable extends Table {
     options: DecimalTableOptions = {},
   ) {
     const {
-      elementToMobject = (item: number | string | VMobject, ...args: unknown[]) =>
-        new DecimalNumberMobject(item as number | string, args[0] as Record<string, unknown> | undefined),
+      elementToMobject = (item: number | string | VMobject, ..._args: unknown[]) =>
+        new DecimalNumberMobject({ number: Number(item) }) as VMobject,
       elementToMobjectConfig = { num_decimal_places: 1 },
       ...rest
     } = options;

@@ -44,91 +44,8 @@ export const TEXT_MOB_SCALE_FACTOR = 0.05;
 export const DEFAULT_LINE_SPACING_SCALE = 0.3;
 export const TEXT2SVG_ADJUSTMENT_FACTOR = 4.8;
 
-// ─── Dependency stubs ───────────────────────────────────────
-// These mirror the stubs in svg_mobject.ts. Replace with real
-// imports once the respective modules are fully converted.
-
-// VMobject stub
-// TODO: Replace with import from ../../types/vectorized_mobject/index.js once converted
-class VMobject extends Mobject {
-  fillColor: ManimColor;
-  fillOpacity: number;
-  strokeColor: ManimColor;
-  strokeOpacity: number;
-  declare strokeWidth: number;
-  nPointsPerCurve: number;
-
-  constructor(
-    options: {
-      color?: ParsableManimColor | null;
-      name?: string;
-      fillColor?: ParsableManimColor | null;
-      fillOpacity?: number;
-      strokeColor?: ParsableManimColor | null;
-      strokeOpacity?: number;
-      strokeWidth?: number;
-    } = {},
-  ) {
-    super({
-      color: options.color ?? undefined,
-      name: options.name,
-    });
-    this.fillColor = options.fillColor
-      ? (ManimColor.parse(options.fillColor) as ManimColor)
-      : (ManimColor.parse("#FFFFFF") as ManimColor);
-    this.fillOpacity = options.fillOpacity ?? 0.0;
-    this.strokeColor = options.strokeColor
-      ? (ManimColor.parse(options.strokeColor) as ManimColor)
-      : (ManimColor.parse("#FFFFFF") as ManimColor);
-    this.strokeOpacity = options.strokeOpacity ?? 1.0;
-    this.strokeWidth = options.strokeWidth ?? 4;
-    this.nPointsPerCurve = 4;
-  }
-
-  getGroupClass(): typeof VGroup {
-    return VGroup;
-  }
-
-  setColorByGradient(...colors: ParsableManimColor[]): this {
-    if (colors.length === 0) return this;
-    const mobs = this.getFamily();
-    if (mobs.length === 0) return this;
-    const colorList = colorGradient(colors, mobs.length) as ManimColor[];
-    for (let i = 0; i < mobs.length; i++) {
-      mobs[i].setColor(colorList[i]);
-    }
-    return this;
-  }
-}
-
-// VGroup stub
-// TODO: Replace with import from ../../types/vectorized_mobject/index.js once converted
-class VGroup extends VMobject {
-  constructor(...vmobjects: VMobject[]) {
-    super();
-    if (vmobjects.length > 0) {
-      this.add(...vmobjects);
-    }
-  }
-}
-
-// Dot stub (used as invisible space placeholder)
-// TODO: Replace with import from ../../geometry/ once converted
-class Dot extends VMobject {
-  constructor(
-    options: {
-      radius?: number;
-      fillOpacity?: number;
-      strokeOpacity?: number;
-      point?: Point3D;
-    } = {},
-  ) {
-    super({
-      fillOpacity: options.fillOpacity ?? 1.0,
-      strokeOpacity: options.strokeOpacity ?? 0.0,
-    });
-  }
-}
+import { VMobject, VGroup } from "../../types/index.js";
+import { Dot } from "../../geometry/arc/index.js";
 
 // ─── TextSetting ────────────────────────────────────────────
 // Replaces manimpango.TextSetting
@@ -641,7 +558,7 @@ export class Text extends SVGMobject {
         chars.add(space);
       } else {
         if (this.submobjects[submobjectsCharIndex]) {
-          chars.add(this.submobjects[submobjectsCharIndex]);
+          chars.add(this.submobjects[submobjectsCharIndex] as VMobject);
         }
         submobjectsCharIndex++;
       }
@@ -1461,7 +1378,7 @@ export class Paragraph extends VGroup {
     this.linesInitialPositions = this.linesChars.map((line) =>
       line.getCenter(),
     );
-    this.add(...this.linesChars);
+    this.add(...(this.linesChars as VMobject[]));
     this.moveTo(np.array([0, 0, 0]));
     if (this.alignment) {
       this._setAllLinesAlignments(this.alignment);
@@ -1491,7 +1408,7 @@ export class Paragraph extends VGroup {
         charIndexCounter + charCount,
       );
       if (lineChars.length > 0) {
-        lineGroup.add(...lineChars);
+        lineGroup.add(...(lineChars as VMobject[]));
       }
       chars.add(lineGroup);
 

@@ -9,55 +9,18 @@ import type { Point3D } from "../../core/math/index.js";
 import { Mobject } from "../mobject/index.js";
 import { Dot3D } from "./three_dimensions.js";
 import { QuickHull } from "../../utils/qhull/index.js";
+import { Polygon } from "../geometry/polygram/index.js";
+import { VGroup, VMobject } from "../types/index.js";
 
-// ─── Stub types for unconverted dependencies ────────────────
-// VGroup, Polygon, and Graph are not yet converted.
-// We use Mobject-based stubs here.
-// TODO: Replace with real imports once mobject.types, mobject.geometry,
-// and mobject.graph are converted.
-
-/**
- * Stub for VMobject with fill/stroke support.
- */
-class VMobjectStub extends Mobject {
-  fillOpacity: number = 0;
-  shadeIn3d: boolean = false;
-
-  setFill(color?: unknown, opacity?: number | null): this {
-    if (opacity !== undefined && opacity !== null) {
-      this.fillOpacity = opacity;
-    }
-    return this;
-  }
-}
-
-/**
- * Stub for VGroup.
- */
-class VGroupStub extends VMobjectStub {}
-
-/**
- * Stub for Polygon — creates a Mobject from vertex coordinates.
- */
-class PolygonStub extends VMobjectStub {
-  constructor(
-    ...vertices: Array<Point3D | number[]>
-  ) {
-    super();
-    // Store points from the polygon corners
-    if (vertices.length > 0) {
-      const pts = vertices.map((v) =>
-        Array.isArray(v) ? v : (v.toArray() as number[]),
-      );
-      this.points = np.array(pts);
-    }
-  }
-}
+// ─── Stub for Graph (still unconverted) ─────────────────────
+// VGroup and Polygon now come from their real modules above.
+// Graph is still stubbed because the graph module uses empty-geometry stubs.
+// TODO: Replace GraphStub once mobject.graph is fully wired.
 
 /**
  * Stub for Graph — holds vertices and edges with layout.
  */
-class GraphStub extends Mobject {
+class GraphStub extends VMobject {
   vertices: number[];
   edges: Array<[number, number]>;
   layout: Map<number, number[]>;
@@ -109,7 +72,7 @@ export interface PolyhedronOptions {
   graphConfig?: Record<string, unknown>;
 }
 
-export class Polyhedron extends VGroupStub {
+export class Polyhedron extends VGroup {
   facesConfig: Record<string, unknown>;
   graphConfig: Record<string, unknown>;
   vertexCoords: number[][];
@@ -118,7 +81,7 @@ export class Polyhedron extends VGroupStub {
   facesList: number[][];
   faceCoords: number[][][];
   edges: Array<[number, number]>;
-  faces: VGroupStub;
+  faces: VGroup;
   graph: GraphStub;
 
   constructor(
@@ -179,18 +142,17 @@ export class Polyhedron extends VGroupStub {
     return edges;
   }
 
-  createFaces(faceCoords: number[][][]): VGroupStub {
-    const faceGroup = new VGroupStub();
+  createFaces(faceCoords: number[][][]): VGroup {
+    const faceGroup = new VGroup();
     for (const face of faceCoords) {
-      const polygon = new PolygonStub(
-        ...face.map((coord) => np.array(coord)),
-      );
+      const polygon = new Polygon(face.map((coord) => np.array(coord)));
       // Apply faces config
       if (typeof this.facesConfig.fillOpacity === "number") {
-        polygon.fillOpacity = this.facesConfig.fillOpacity;
+        polygon.fillOpacity = this.facesConfig.fillOpacity as number;
       }
       if (typeof this.facesConfig.shadeIn3d === "boolean") {
-        polygon.shadeIn3d = this.facesConfig.shadeIn3d;
+        (polygon as unknown as { shadeIn3d: boolean }).shadeIn3d =
+          this.facesConfig.shadeIn3d as boolean;
       }
       faceGroup.add(polygon);
     }

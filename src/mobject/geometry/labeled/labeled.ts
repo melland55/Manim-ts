@@ -10,7 +10,7 @@ import type { Point3D } from "../../../core/math/index.js";
 import {
   DEFAULT_FONT_SIZE,
 } from "../../../constants/index.js";
-import { VMobject } from "../../types/index.js";
+import { VMobject, VGroup } from "../../types/index.js";
 import type { VMobjectOptions } from "../../types/index.js";
 import { Mobject } from "../../mobject/index.js";
 import { Line, Arrow } from "../line/index.js";
@@ -31,18 +31,6 @@ import { Text } from "../../text/text_mobject/index.js";
 import { WHITE } from "../../../utils/color/manim_colors.js";
 import type { IColor } from "../../../core/types.js";
 import { polylabel } from "../../../utils/polylabel/index.js";
-
-// ── VGroup stub ───────────────────────────────────────────────
-// TODO: Replace with import from ../../types/vectorized_mobject/index.js once VGroup is exported
-
-class VGroup extends VMobject {
-  constructor(...vmobjects: VMobject[]) {
-    super();
-    for (const vm of vmobjects) {
-      this.add(vm);
-    }
-  }
-}
 
 // ── Label ─────────────────────────────────────────────────────
 

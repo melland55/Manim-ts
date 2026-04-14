@@ -4,45 +4,9 @@
  * TypeScript port of manim/mobject/frame.py
  */
 
-import { np } from "../../core/math/index.js";
-import { Mobject } from "../mobject/mobject.js";
 import { config } from "../../_config/index.js";
-
-// ─── Dependency stubs for not-yet-converted modules ──────────
-// TODO: Replace with import from ../geometry/polygram once converted
-
-interface RectangleOptions {
-  width?: number;
-  height?: number;
-  color?: unknown;
-  fillColor?: unknown;
-  fillOpacity?: number;
-  strokeColor?: unknown;
-  strokeOpacity?: number;
-  strokeWidth?: number;
-  [key: string]: unknown;
-}
-
-/**
- * Minimal Rectangle stub until mobject.geometry is converted.
- * Creates corner points so that Mobject's width/height accessors work.
- */
-class Rectangle extends Mobject {
-  constructor(options: RectangleOptions = {}) {
-    super();
-    const w = options.width ?? 4.0;
-    const h = options.height ?? 2.0;
-    const hw = w / 2;
-    const hh = h / 2;
-    // Set corner points so lengthOverDim works correctly
-    this.points = np.array([
-      [-hw, -hh, 0],
-      [hw, -hh, 0],
-      [hw, hh, 0],
-      [-hw, hh, 0],
-    ]);
-  }
-}
+import { Rectangle } from "../geometry/polygram/index.js";
+import type { RectangleOptions } from "../geometry/polygram/index.js";
 
 // ─── ScreenRectangle ─────────────────────────────────────────
 

@@ -72,8 +72,12 @@ export class TipableVMobject extends VMobject {
   tipLength: number;
   normalVector: Point3D;
   tipStyle: Record<string, unknown>;
-  tip?: ArrowTip;
-  startTip?: ArrowTip;
+  // Widened from ArrowTip to VMobject to match Python Manim, where .tip is
+  // just "some mobject attached as a tip" with no static subtype contract.
+  // NumberLine, for example, assigns a custom-built triangle that is a plain
+  // VMobject rather than an ArrowTip subclass.
+  tip?: VMobject;
+  startTip?: VMobject;
   private _initPositioningAxis?: NDArray;
 
   constructor(options: TipableVMobjectOptions = {}) {
@@ -386,20 +390,6 @@ export class Arc extends TipableVMobject {
       ]) as Point3D;
       const endAnchor = np.array(anchorsData[i + 1]) as Point3D;
       this.addCubicBezierCurveTo(h1, h2, endAnchor);
-    }
-  }
-
-  /**
-   * Set points as straight-line corners (each pair connected by a degenerate cubic).
-   */
-  protected setPointsAsCorners(corners: NDArray | number[][]): void {
-    this.clearPoints();
-    const arr = Array.isArray(corners) ? corners : (corners.toArray() as number[][]);
-    if (arr.length < 2) return;
-
-    this.startNewPath(np.array(arr[0]) as Point3D);
-    for (let i = 1; i < arr.length; i++) {
-      this.addLineTo(np.array(arr[i]) as Point3D);
     }
   }
 

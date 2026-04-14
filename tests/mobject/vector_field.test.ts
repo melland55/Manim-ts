@@ -221,16 +221,16 @@ describe("StreamLines", () => {
     expect(vf.strokeWidth).toBe(2);
   });
 
-  it("create() throws because stream lines use stub VMobjects (not real VMobjects)", () => {
-    // Once mobject.geometry and vectorized_mobject are fully converted,
-    // this test should be updated to verify create() returns an AnimationGroup.
+  it("create() returns an AnimationGroup over the stream lines", () => {
     const vf = new StreamLines(constantField, {
       xRange: [-1, 1, 1],
       yRange: [-1, 1, 1],
       virtualTime: 0.5,
       dt: 0.1,
     });
-    expect(() => vf.create()).toThrow("VMobjects");
+    const anim = vf.create();
+    expect(anim).toBeDefined();
+    expect((anim as unknown as { runTime: number }).runTime).toBeGreaterThan(0);
   });
 
   it("endAnimation throws if not started", () => {

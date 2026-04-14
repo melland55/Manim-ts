@@ -38,97 +38,12 @@ import { texToSvgFile } from "../../../utils/tex_file_writing/index.js";
 
 const MATHTEX_SUBSTRING = "substring";
 
-// ─── Dependency stubs ───────────────────────────────────────
-// These mirror the stubs used in svg_mobject.ts and text_mobject.ts.
-// Replace with real imports once the respective modules are fully converted.
-
-// VMobject stub
-// TODO: Replace with import from ../../types/vectorized_mobject/index.js once converted
-class VMobject extends Mobject {
-  fillColor: ManimColor;
-  fillOpacity: number;
-  strokeColor: ManimColor;
-  strokeOpacity: number;
-  declare strokeWidth: number;
-  nPointsPerCurve: number;
-
-  constructor(
-    options: {
-      color?: ParsableManimColor | null;
-      name?: string;
-      fillColor?: ParsableManimColor | null;
-      fillOpacity?: number;
-      strokeColor?: ParsableManimColor | null;
-      strokeOpacity?: number;
-      strokeWidth?: number;
-    } = {},
-  ) {
-    super({
-      color: options.color ?? undefined,
-      name: options.name,
-    });
-    this.fillColor = options.fillColor
-      ? (ManimColor.parse(options.fillColor) as ManimColor)
-      : (ManimColor.parse("#FFFFFF") as ManimColor);
-    this.fillOpacity = options.fillOpacity ?? 0.0;
-    this.strokeColor = options.strokeColor
-      ? (ManimColor.parse(options.strokeColor) as ManimColor)
-      : (ManimColor.parse("#FFFFFF") as ManimColor);
-    this.strokeOpacity = options.strokeOpacity ?? 1.0;
-    this.strokeWidth = options.strokeWidth ?? 4;
-    this.nPointsPerCurve = 4;
-  }
-
-  getGroupClass(): typeof VGroup {
-    return VGroup;
-  }
-
-  setFill(color?: ParsableManimColor, opacity?: number): this {
-    if (color !== undefined) {
-      this.fillColor = ManimColor.parse(color) as ManimColor;
-    }
-    if (opacity !== undefined) {
-      this.fillOpacity = opacity;
-    }
-    return this;
-  }
-}
-
-// VGroup stub
-// TODO: Replace with import from ../../types/vectorized_mobject/index.js once converted
-class VGroup extends VMobject {
-  constructor(...vmobjects: VMobject[]) {
-    super();
-    if (vmobjects.length > 0) {
-      this.add(...vmobjects);
-    }
-  }
-}
-
-// Line stub
-// TODO: Replace with import from ../../geometry/index.js once converted
-class LineStub extends VMobject {
-  constructor(start: Point3D = np.array([-1, 0, 0]), end: Point3D = np.array([1, 0, 0])) {
-    super();
-    this.points = np.array([
-      (start as NDArray).toArray(),
-      (end as NDArray).toArray(),
-    ]);
-  }
-
-  matchWidth(mobject: Mobject): this {
-    const targetWidth = mobject.getWidth();
-    const currentWidth = this.getWidth();
-    if (currentWidth > 0) {
-      this.scale(targetWidth / currentWidth);
-    }
-    return this;
-  }
-}
+import { VMobject, VGroup } from "../../types/index.js";
+import { Line } from "../../geometry/line/index.js";
 
 // ─── Options interfaces ─────────────────────────────────────
 
-export interface SingleStringMathTexOptions extends SVGMobjectOptions {
+export interface SingleStringMathTexOptions extends Omit<SVGMobjectOptions, "color"> {
   texString?: string;
   strokeWidth?: number;
   shouldCenter?: boolean;
@@ -201,7 +116,9 @@ export class SingleStringMathTex extends SVGMobject {
       shouldCenter,
       strokeWidth,
       height: height ?? undefined,
-      color: resolvedColor,
+      color: resolvedColor != null
+        ? (ManimColor.parse(resolvedColor) as ManimColor)
+        : undefined,
       pathStringConfig: {
         shouldSubdivideSharpCurves: true,
         shouldRemoveNullCurves: true,
@@ -836,7 +753,7 @@ export class Title extends Tex {
 
     if (this.includeUnderline) {
       const underlineWidth = config.frameWidth - 2;
-      const underline = new LineStub(LEFT, RIGHT);
+      const underline = new Line(LEFT, RIGHT);
       underline.nextTo(this, DOWN, { buff: this.underlineBuff });
       if (this.matchUnderlineWidthToText) {
         underline.matchWidth(this);

@@ -33,3 +33,10 @@ export {
 export type {
   OpenGLVMobjectOptions,
 } from "./opengl_vectorized_mobject.js";
+
+export {
+  registerOpenGLEquivalent,
+  convertToOpenGL,
+  unregisterOpenGLEquivalent,
+  getOpenGLClassMap,
+} from "./opengl_compatibility.js";

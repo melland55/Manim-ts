@@ -8,6 +8,19 @@ import type { NDArray } from "numpy-ts";
 import { np } from "../../../core/math/index.js";
 import { OpenGLSurface, OpenGLTexturedSurface, type OpenGLTexturedSurfaceOptions } from "./opengl_surface.js";
 
+/**
+ * Duck-type an NDArray. numpy-ts NDArrays are Proxy objects whose `has` trap
+ * does not expose `shape`, so `"shape" in x` is always false at runtime — use
+ * the `.get` method check instead.
+ */
+function isNDArray(x: unknown): x is NDArray {
+  return (
+    x !== null &&
+    typeof x === "object" &&
+    typeof (x as { get?: unknown }).get === "function"
+  );
+}
+
 // ─── OpenGLImageMobject ──────────────────────────────────────
 
 export interface OpenGLImageMobjectOptions extends OpenGLTexturedSurfaceOptions {
@@ -44,9 +57,9 @@ export class OpenGLImageMobject extends OpenGLTexturedSurface {
 
     // Determine image size
     let imageSize: [number, number];
-    if (filenameOrArray instanceof Object && "shape" in filenameOrArray) {
+    if (isNDArray(filenameOrArray)) {
       // NDArray — shape is [H, W, ...] so size is [W, H]
-      const shape = (filenameOrArray as NDArray).shape;
+      const shape = filenameOrArray.shape;
       imageSize = [shape[1], shape[0]];
     } else {
       // TODO: Port from OpenGL — needs actual image file size reading

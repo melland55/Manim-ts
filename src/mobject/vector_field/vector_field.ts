@@ -31,6 +31,8 @@ import { BLUE_E, GREEN, RED, YELLOW } from "../../utils/color/manim_colors.js";
 import { config } from "../../_config/index.js";
 import { Mobject } from "../../mobject/mobject/index.js";
 import { getVectorizedMobjectClass, RendererType } from "../../mobject/utils/index.js";
+import { VMobject as RealVMobject, VGroup as RealVGroup } from "../../mobject/types/index.js";
+import { Vector as RealVector } from "../../mobject/geometry/line/index.js";
 
 import { AnimationGroup, Succession } from "../../animation/composition/index.js";
 import { Create } from "../../animation/creation/index.js";
@@ -43,110 +45,24 @@ import { UpdateFromAlphaFunc } from "../../animation/updaters/index.js";
 type VectorFieldFunc = (pos: Point3D) => Point3D;
 type ColorSchemeFunc = (vec: Point3D) => number;
 
-// ─── Dependency stubs for unconverted geometry module ────────
-// TODO: Replace with real imports once mobject.geometry is converted.
+// ─── Local type extensions ─────────────────────────────────
+// Stream-line VMobjects carry dynamic scheduling fields used by animations.
+// Alias the real classes with extended shape used by this module.
 
-class VMobjectStub extends Mobject {
-  fillColor: ManimColor;
-  fillOpacity: number;
-  strokeColor: ManimColor;
-  strokeOpacity: number;
-  strokeWidth: number;
+type VMobjectStub = RealVMobject & {
   duration: number;
   anim: { mobject: IMobject; runTime: number; begin(): void; finish(): void; interpolate(alpha: number): void } | null;
   time: number;
+  setPointsSmoothly(points: Point3D[]): VMobjectStub;
+  getAnchors(): Point3D[];
+  colorUsingBackgroundImage(image: unknown): VMobjectStub;
+  setRgbaArrayDirect(rgbas: unknown, name?: string): VMobjectStub;
+};
 
-  constructor(options: {
-    fillColor?: ParsableManimColor;
-    fillOpacity?: number;
-    strokeColor?: ParsableManimColor;
-    strokeOpacity?: number;
-    strokeWidth?: number;
-    color?: ParsableManimColor;
-  } = {}) {
-    super({ color: options.color });
-    this.fillColor = new ManimColor(options.fillColor ?? options.color ?? "#FFFFFF");
-    this.fillOpacity = options.fillOpacity ?? 0.0;
-    this.strokeColor = new ManimColor(options.strokeColor ?? options.color ?? "#FFFFFF");
-    this.strokeOpacity = options.strokeOpacity ?? 1.0;
-    this.strokeWidth = options.strokeWidth ?? 2.0;
-    this.duration = 0;
-    this.anim = null;
-    this.time = 0;
-  }
-
-  setFill(options?: { color?: ParsableManimColor; opacity?: number }): this {
-    if (options?.color) this.fillColor = new ManimColor(options.color);
-    if (options?.opacity !== undefined) this.fillOpacity = options.opacity;
-    return this;
-  }
-
-  setStroke(
-    colorOrOptions?: ParsableManimColor | ParsableManimColor[] | { color?: ParsableManimColor; width?: number; opacity?: number },
-    width?: number,
-    opacity?: number,
-  ): this {
-    if (colorOrOptions && typeof colorOrOptions === "object" && !Array.isArray(colorOrOptions) && !(colorOrOptions instanceof ManimColor)) {
-      const opts = colorOrOptions as { color?: ParsableManimColor; width?: number; opacity?: number };
-      if (opts.color) this.strokeColor = new ManimColor(opts.color);
-      if (opts.width !== undefined) this.strokeWidth = opts.width;
-      if (opts.opacity !== undefined) this.strokeOpacity = opts.opacity;
-    } else {
-      if (colorOrOptions != null && !Array.isArray(colorOrOptions)) {
-        this.strokeColor = new ManimColor(colorOrOptions);
-      }
-      if (width !== undefined) this.strokeWidth = width;
-      if (opacity !== undefined) this.strokeOpacity = opacity;
-    }
-    return this;
-  }
-
-  setPointsSmoothly(_points: Point3D[]): this {
-    // TODO: Implement when VMobject is available
-    return this;
-  }
-
-  getAnchors(): Point3D[] {
-    // TODO: Implement when VMobject is available
-    return [];
-  }
-
-  colorUsingBackgroundImage(_image: unknown): this {
-    // TODO: Implement when rendering is available
-    return this;
-  }
-
-  setRgbaArrayDirect(_rgbas: unknown, _name?: string): this {
-    // TODO: Implement when OpenGL rendering is available
-    return this;
-  }
-}
-
-class VGroupStub extends VMobjectStub {
-  constructor(options: {
-    fillColor?: ParsableManimColor;
-    fillOpacity?: number;
-    strokeColor?: ParsableManimColor;
-    strokeOpacity?: number;
-    strokeWidth?: number;
-    color?: ParsableManimColor;
-  } = {}) {
-    super(options);
-  }
-}
-
-/**
- * Stub for Vector (Arrow) — creates an arrow-like Mobject from a direction vector.
- * TODO: Replace with real import once mobject.geometry.line is converted.
- */
-class VectorStub extends VMobjectStub {
-  constructor(direction: Point3D, _options: Record<string, unknown> = {}) {
-    super();
-    // Store the direction as a simplified 2-point representation
-    const dirArr = direction.toArray() as number[];
-    this.points = np.array([[0, 0, 0], dirArr]);
-  }
-}
+const VMobjectStub = RealVMobject as unknown as new (...args: unknown[]) => VMobjectStub;
+const VGroupStub = RealVGroup;
+type VGroupStub = RealVGroup;
+const VectorStub = RealVector;
 
 // ─── Constants ──────────────────────────────────────────────
 
@@ -226,7 +142,10 @@ export class VectorField extends VGroupStub {
       colors = DEFAULT_SCALAR_FIELD_COLORS,
     } = options;
 
-    super(color != null ? { color } : {});
+    super();
+    if (color != null) {
+      this.setColor(color);
+    }
     this.func = func;
 
     if (color == null) {
@@ -506,7 +425,7 @@ export class ArrowVectorField extends VectorField {
         }
       }
     }
-    this.add(...vectors);
+    this.add(...(vectors as unknown as RealVMobject[]));
     this.setOpacity(this.opacity);
   }
 
@@ -694,10 +613,10 @@ export class StreamLines extends VectorField {
       line.setPointsSmoothly(sampledPoints);
 
       if (this.singleColor) {
-        line.setStroke({ color: this.color, width: this.strokeWidth, opacity });
+        line.setStroke(this.color as unknown as import("../../core/types.js").IColor, this.strokeWidth, opacity);
       } else {
         if (config.renderer === RendererType.OPENGL) {
-          line.setStroke({ width: this.strokeWidth / 4.0 });
+          line.setStroke(undefined, this.strokeWidth / 4.0);
           if (this.valuesToRgbas && line.points.shape[0] > 0) {
             const norms: number[] = [];
             const numPts = line.points.shape[0];
@@ -712,10 +631,10 @@ export class StreamLines extends VectorField {
         } else {
           const isNon2D = this.zRange[0] !== 0 || this.zRange[1] !== 0.5 || this.zRange[2] !== 0.5;
           if (isNon2D) {
-            const anchors = line.getAnchors();
+            const anchors = line.getAnchors() as unknown as Point3D[];
             if (anchors.length > 0) {
               const strokeColors = anchors.map((p: Point3D) => this.posToColor(p));
-              line.setStroke(strokeColors as unknown as ParsableManimColor);
+              line.setStroke(strokeColors as unknown as import("../../core/types.js").IColor);
             }
           } else {
             line.colorUsingBackgroundImage(this.backgroundImg);
@@ -723,7 +642,7 @@ export class StreamLines extends VectorField {
           line.setStroke(undefined, this.strokeWidth, opacity);
         }
       }
-      this.add(line as unknown as Mobject);
+      this.add(line as unknown as RealVMobject);
     }
     this.streamLines = [...this.submobjects];
   }
@@ -779,7 +698,7 @@ export class StreamLines extends VectorField {
       if (warmUp) {
         line.time *= -1;
       }
-      this.add(line.anim.mobject as unknown as Mobject);
+      this.add(line.anim.mobject as unknown as RealVMobject);
     }
 
     const updater = (mob: Mobject, dt: number) => {

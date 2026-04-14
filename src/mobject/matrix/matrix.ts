@@ -21,115 +21,15 @@ import {
 } from "../../utils/color/core.js";
 import { Mobject, type MobjectConstructorOptions } from "../mobject/index.js";
 
-// ─── Dependency stubs ────────────────────────────────────────
-// These classes are not yet converted. We define minimal local stubs
-// so this module compiles. Replace with real imports once the
-// respective modules land.
+import { VMobject, VGroup } from "../types/index.js";
+import type { VMobjectOptions } from "../types/index.js";
+import { MathTex, Tex } from "../text/tex_mobject/index.js";
+import { DecimalNumber, Integer } from "../text/numbers/index.js";
 
-// VMobject stub — extends Mobject with vectorized mobject fields
-// TODO: Replace with import from ../types/vectorized_mobject/index.js once converted
-interface VMobjectStubOptions extends MobjectConstructorOptions {
-  fillColor?: ParsableManimColor | null;
-  fillOpacity?: number;
-  strokeColor?: ParsableManimColor | null;
-  strokeOpacity?: number;
-  strokeWidth?: number;
-}
-
-class VMobject extends Mobject {
-  fillColor: ManimColor;
-  fillOpacity: number;
-  strokeColor: ManimColor;
-  strokeOpacity: number;
-  declare strokeWidth: number;
-
-  constructor(options: VMobjectStubOptions = {}) {
-    super({
-      color: options.color ?? undefined,
-      name: options.name,
-      zIndex: options.zIndex,
-    });
-    this.fillColor = options.fillColor
-      ? (ManimColor.parse(options.fillColor) as ManimColor)
-      : (ManimColor.parse("#FFFFFF") as ManimColor);
-    this.fillOpacity = options.fillOpacity ?? 0.0;
-    this.strokeColor = options.strokeColor
-      ? (ManimColor.parse(options.strokeColor) as ManimColor)
-      : (ManimColor.parse("#FFFFFF") as ManimColor);
-    this.strokeOpacity = options.strokeOpacity ?? 1.0;
-    this.strokeWidth = options.strokeWidth ?? 4;
-  }
-}
-
-// VGroup stub
-// TODO: Replace with import from ../types/vectorized_mobject/index.js once converted
-class VGroup extends VMobject {
-  constructor(...vmobjects: VMobject[]) {
-    super();
-    if (vmobjects.length > 0) {
-      this.add(...vmobjects);
-    }
-  }
-}
-
-// MathTex stub — minimal placeholder for tex rendering
-// TODO: Replace with import from ../text/tex_mobject/index.js once converted
-class MathTex extends VMobject {
-  texString: string;
-
-  constructor(texString: string, _options: Record<string, unknown> = {}) {
-    super();
-    this.texString = texString;
-  }
-
-  scale(factor: number, options?: { aboutPoint?: Point3D; aboutEdge?: Point3D }): this {
-    return super.scale(factor, options);
-  }
-
-  stretchToFitHeight(
-    h: number,
-    options: { aboutPoint?: Point3D; aboutEdge?: Point3D } = {},
-  ): this {
-    return super.stretchToFitHeight(h, options);
-  }
-}
-
-// Tex stub — minimal placeholder for text rendering
-// TODO: Replace with import from ../text/tex_mobject/index.js once converted
-class Tex extends VMobject {
-  texString: string;
-
-  constructor(texString: string, _options: Record<string, unknown> = {}) {
-    super();
-    this.texString = texString;
-  }
-}
-
-// DecimalNumber stub — minimal placeholder for decimal display
-// TODO: Replace with import from ../text/numbers/index.js once converted
-class DecimalNumber extends VMobject {
-  number: number;
-  numDecimalPlaces: number;
-
-  constructor(
-    number: number,
-    options: { numDecimalPlaces?: number } & VMobjectStubOptions = {},
-  ) {
-    super(options);
-    this.number = number;
-    this.numDecimalPlaces = options.numDecimalPlaces ?? 1;
-  }
-}
-
-// Integer stub — minimal placeholder for integer display
-// TODO: Replace with import from ../text/numbers/index.js once converted
-class Integer extends VMobject {
-  number: number;
-
-  constructor(number: number, options: VMobjectStubOptions = {}) {
-    super(options);
-    this.number = Math.round(number);
-  }
+// VMobjectStubOptions preserved for compatibility with existing option signatures
+interface VMobjectStubOptions extends VMobjectOptions {
+  name?: string;
+  zIndex?: number;
 }
 
 // ─── Helper functions ────────────────────────────────────────
@@ -143,7 +43,14 @@ class Integer extends VMobject {
 export function matrixToTexString(matrix: number[][] | string[][] | NDArray): string {
   let rows: string[][];
 
-  if ("shape" in matrix && typeof (matrix as NDArray).toArray === "function") {
+  // Duck-type NDArray via `.toArray` method (its `.shape` is NOT detectable
+  // via `"shape" in x` because numpy-ts NDArrays are Proxy objects without a
+  // `has` trap for shape — use a method check instead).
+  if (
+    matrix !== null &&
+    typeof matrix === "object" &&
+    typeof (matrix as NDArray).toArray === "function"
+  ) {
     const arr = (matrix as NDArray).toArray() as number[] | number[][];
     if (!Array.isArray(arr[0])) {
       // 1D → column vector
@@ -174,7 +81,7 @@ export function matrixToTexString(matrix: number[][] | string[][] | NDArray): st
  * @returns MathTex mobject displaying the matrix
  */
 export function matrixToMobject(matrix: number[][] | string[][] | NDArray): MathTex {
-  return new MathTex(matrixToTexString(matrix));
+  return new MathTex([matrixToTexString(matrix)]);
 }
 
 // ─── Matrix options ──────────────────────────────────────────
@@ -225,7 +132,7 @@ export class Matrix extends VMobject {
   ) {
     const defaultElementToMobject = (item: unknown, ...args: unknown[]) => {
       const opts = (args[0] ?? {}) as Record<string, unknown>;
-      return new MathTex(String(item), opts);
+      return new MathTex([String(item)], opts);
     };
     const {
       vBuff = 0.8,
@@ -343,8 +250,8 @@ export class Matrix extends VMobject {
       "\\right" + right,
     ].join("");
 
-    const lBracket = new MathTex(texLeft, kwargs);
-    const rBracket = new MathTex(texRight, kwargs);
+    const lBracket = new MathTex([texLeft], kwargs);
+    const rBracket = new MathTex([texRight], kwargs);
 
     const bracketPair = new VGroup(lBracket, rBracket);
     if (this.stretchBrackets) {
@@ -462,7 +369,8 @@ export class DecimalMatrix extends Matrix {
   ) {
     const defaultElementToMobject = (item: unknown, ...args: unknown[]) => {
       const opts = (args[0] ?? {}) as Record<string, unknown>;
-      return new DecimalNumber(Number(item), {
+      return new DecimalNumber({
+        number: Number(item),
         numDecimalPlaces: (opts.numDecimalPlaces as number) ?? 1,
         ...opts,
       });
@@ -498,7 +406,7 @@ export class IntegerMatrix extends Matrix {
     options: IntegerMatrixOptions = {},
   ) {
     const defaultElementToMobject = (item: unknown, ..._args: unknown[]) =>
-      new Integer(Number(item));
+      new Integer({ number: Number(item) });
     const {
       elementToMobject = defaultElementToMobject,
       ...rest
@@ -564,8 +472,8 @@ export function getDetText(
     initialScaleFactor = 2,
   } = options;
 
-  const lParen = new MathTex("(");
-  const rParen = new MathTex(")");
+  const lParen = new MathTex(["("]);
+  const rParen = new MathTex([")"]);
   lParen.scale(initialScaleFactor);
   rParen.scale(initialScaleFactor);
   lParen.stretchToFitHeight(matrix.height);
@@ -574,7 +482,7 @@ export function getDetText(
   lParen.nextTo(matrix, LEFT, { buff: 0.1 });
   rParen.nextTo(matrix, RIGHT, { buff: 0.1 });
 
-  const det = new Tex("det");
+  const det = new Tex(["det"]);
   det.scale(initialScaleFactor);
   det.nextTo(lParen, LEFT, { buff: 0.1 });
 
@@ -585,9 +493,9 @@ export function getDetText(
   const detText = new VGroup(det, lParen, rParen);
 
   if (determinant != null) {
-    const eq = new MathTex("=");
+    const eq = new MathTex(["="]);
     eq.nextTo(rParen, RIGHT, { buff: 0.1 });
-    const result = new MathTex(String(determinant));
+    const result = new MathTex([String(determinant)]);
     result.nextTo(eq, RIGHT, { buff: 0.2 });
     detText.add(eq, result);
   }

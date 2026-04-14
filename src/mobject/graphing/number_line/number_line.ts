@@ -24,24 +24,12 @@ import type { LineOptions } from "../../geometry/index.js";
 import { _ScaleBase, LinearBase } from "../scale/index.js";
 import { DecimalNumber, Integer } from "../../text/numbers/index.js";
 import { MathTex, Tex } from "../../text/tex_mobject/index.js";
-import { VMobject } from "../../types/index.js";
+import { VMobject, VGroup } from "../../types/index.js";
 import { Mobject } from "../../mobject/index.js";
 import { interpolate } from "../../../utils/bezier/index.js";
 import { mergeDictsRecursively } from "../../../utils/config_ops/index.js";
 import { normalize } from "../../../utils/space_ops/index.js";
 import type { IColor } from "../../../core/types.js";
-
-// ─── VGroup stub ──────────────────────────────────────────────
-// Follows the same pattern used in other modules
-
-class VGroup extends VMobject {
-  constructor(...vmobjects: Mobject[]) {
-    super();
-    if (vmobjects.length > 0) {
-      this.add(...vmobjects);
-    }
-  }
-}
 
 // ─── Options ──────────────────────────────────────────────────
 
@@ -113,7 +101,12 @@ export class NumberLine extends Line {
   ticks!: VGroup;
   numbers!: VGroup;
   labels!: VGroup;
-  tip?: VMobject;
+  // NumberLine builds a custom triangular tip — a plain VMobject, not an
+  // ArrowTip subclass like the inherited `tip` slot in TipableVMobject
+  // declares. The runtime value is a VMobject; we widen the declared type
+  // here via `declare` to avoid a subtype conflict with the base. This
+  // mirrors Python Manim, where `NumberLine.tip` can be any VMobject.
+  declare tip?: VMobject;
 
   constructor(options: NumberLineOptions = {}) {
     const {
@@ -563,7 +556,7 @@ export class NumberLine extends Line {
       numbers = this.getTickRange();
     }
     return new VGroup(
-      ...numbers.map((n) => this.getNumberMobject(n)),
+      ...numbers.map((n) => this.getNumberMobject(n) as unknown as VMobject),
     );
   }
 
@@ -601,7 +594,7 @@ export class NumberLine extends Line {
           fontSize: size,
           labelConstructor: constructor,
           ...kwargs,
-        }),
+        }) as unknown as VMobject,
       );
     }
     this.add(numbers);
@@ -643,7 +636,7 @@ export class NumberLine extends Line {
       }
 
       label.nextTo(this.numberToPoint(x), dir, { buff: b });
-      labels.add(label);
+      labels.add(label as unknown as VMobject);
     }
 
     this.labels = labels;

@@ -10,7 +10,7 @@ import type { Point3D, Points3D } from "../../../core/math/index.js";
 import { TAU } from "../../../core/math/index.js";
 import type { IColor } from "../../../core/types.js";
 import { BLUE, WHITE } from "../../../core/color/index.js";
-import { VMobject } from "../../types/index.js";
+import { VMobject, VGroup } from "../../types/index.js";
 import type { VMobjectOptions } from "../../types/index.js";
 import {
   ORIGIN,
@@ -43,15 +43,6 @@ function getRow(pts: NDArray, i: number): Point3D {
     pts.get([i, 1]) as number,
     pts.get([i, 2]) as number,
   ]);
-}
-
-// ── Helper: VGroup stub ─────────────────────────────────────
-
-class VGroup extends VMobject {
-  constructor(...mobjects: VMobject[]) {
-    super();
-    this.add(...mobjects);
-  }
 }
 
 // ── Helper: point equality check ────────────────────────────
