@@ -3,6 +3,21 @@
   "version": "0.1.0",
   "description": "TypeScript port of Manim (Mathematical Animation Engine)",
   "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./react": "./src/integrations/react.tsx",
+    "./vue": "./src/integrations/vue.ts",
+    "./timeline": "./src/scene/timeline/index.ts",
+    "./interaction": "./src/scene/interaction/index.ts"
+  },
+  "peerDependencies": {
+    "react": ">=17",
+    "vue": ">=3"
+  },
+  "peerDependenciesMeta": {
+    "react": { "optional": true },
+    "vue": { "optional": true }
+  },
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",

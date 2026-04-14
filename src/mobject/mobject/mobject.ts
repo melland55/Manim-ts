@@ -51,6 +51,7 @@ import { straightPath } from "../../utils/paths/index.js";
 import type { PathFuncType } from "../../utils/paths/index.js";
 import { MultiAnimationOverrideException } from "../../utils/exceptions/index.js";
 import { MethodWithArgs } from "../../data_structures/index.js";
+import { EventEmitter as PointerEventEmitter } from "../../scene/interaction/event_emitter.js";
 
 // ─── Type aliases ────────────────────────────────────────────
 
@@ -203,6 +204,33 @@ export class Mobject {
 
   toString(): string {
     return this.name;
+  }
+
+  // ── Pointer events (additive; not part of Python Manim) ──
+  // Lazily attach an EventEmitter on first use. No cost when unused.
+
+  private _events?: PointerEventEmitter<Record<string, unknown>>;
+
+  on(
+    event: string,
+    listener: (payload: unknown) => void,
+  ): () => void {
+    if (!this._events) {
+      this._events = new PointerEventEmitter();
+    }
+    return this._events.on(event, listener as (p: unknown) => void);
+  }
+
+  off(event: string, listener: (payload: unknown) => void): void {
+    if (!this._events) return;
+    this._events.off(event, listener as (p: unknown) => void);
+  }
+
+  emit(event: string, payload: unknown): void {
+    if (!this._events) return;
+    if (this._events.hasListeners(event)) {
+      this._events.emit(event, payload);
+    }
   }
 
   // ── Points ──
@@ -1153,14 +1181,26 @@ export class Mobject {
   getBoundaryPoint(direction: Point3D): Point3D {
     const allPoints = this.getPointsDefiningBoundary();
     if (allPoints.shape[0] === 0) return np.zeros([this.dim]) as Point3D;
-    const dots: number[] = [];
     const n = allPoints.shape[0];
+    const dim = allPoints.shape[1];
+    const dirArr: number[] = [];
+    for (let j = 0; j < dim; j++) {
+      dirArr.push(direction.get([j]) as number);
+    }
+    const dots: number[] = [];
     for (let i = 0; i < n; i++) {
-      const row = allPoints.get([i]) as unknown as NDArray;
-      dots.push(np.dot(row, direction) as number);
+      let s = 0;
+      for (let j = 0; j < dim; j++) {
+        s += (allPoints.get([i, j]) as number) * dirArr[j];
+      }
+      dots.push(s);
     }
     const maxIdx = dots.indexOf(Math.max(...dots));
-    return allPoints.get([maxIdx]) as unknown as Point3D;
+    const rowArr: number[] = [];
+    for (let j = 0; j < dim; j++) {
+      rowArr.push(allPoints.get([maxIdx, j]) as number);
+    }
+    return np.array(rowArr) as Point3D;
   }
 
   getMidpoint(): Point3D {
@@ -1224,14 +1264,21 @@ export class Mobject {
 
   getStart(): Point3D {
     this.throwErrorIfNoPoints();
-    const row = this.points.get([0]) as unknown as NDArray;
-    return np.array(row.toArray() as number[]) as Point3D;
+    return np.array([
+      this.points.get([0, 0]) as number,
+      this.points.get([0, 1]) as number,
+      this.points.get([0, 2]) as number,
+    ]) as Point3D;
   }
 
   getEnd(): Point3D {
     this.throwErrorIfNoPoints();
-    const row = this.points.get([this.points.shape[0] - 1]) as unknown as NDArray;
-    return np.array(row.toArray() as number[]) as Point3D;
+    const last = this.points.shape[0] - 1;
+    return np.array([
+      this.points.get([last, 0]) as number,
+      this.points.get([last, 1]) as number,
+      this.points.get([last, 2]) as number,
+    ]) as Point3D;
   }
 
   getStartAndEnd(): [Point3D, Point3D] {
@@ -2003,8 +2050,14 @@ function structuredCloneDeep<T extends Mobject>(obj: T): T {
       (result as Record<string, unknown>)[key] = value;
     } else if (value instanceof Mobject) {
       (result as Record<string, unknown>)[key] = structuredCloneDeep(value);
-    } else if (typeof value === "object" && "shape" in value && "toArray" in value) {
-      // NDArray — deep copy
+    } else if (
+      typeof value === "object" &&
+      typeof (value as { toArray?: unknown }).toArray === "function" &&
+      typeof (value as { get?: unknown }).get === "function"
+    ) {
+      // NDArray — deep copy. Duck-type via `.toArray` and `.get` methods
+      // because numpy-ts NDArrays are Proxies whose `has` trap does not
+      // expose `shape`, making `"shape" in value` unreliable at runtime.
       const arr = (value as NDArray).toArray();
       (result as Record<string, unknown>)[key] = np.array(
         Array.isArray(arr) && Array.isArray(arr[0])

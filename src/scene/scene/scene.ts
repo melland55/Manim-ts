@@ -20,6 +20,8 @@ import { np, ORIGIN } from "../../core/math/index.js";
 import { Camera } from "../../camera/camera/index.js";
 import { BLACK } from "../../core/color/index.js";
 import { DefaultSectionType } from "../section/index.js";
+import { Timeline } from "../timeline/timeline.js";
+import { PointerDispatcher } from "../interaction/pointer_dispatcher.js";
 
 // ─── Constants ───────────────────────────────────────────────
 
@@ -35,6 +37,23 @@ export interface SceneOptions {
   randomSeed?: number | null;
   skipAnimations?: boolean;
   frameRate?: number;
+  /**
+   * Enable timeline recording + scrubbable playback (scene.playback.*).
+   * Additive feature, not part of Python Manim. Default false.
+   */
+  playback?: boolean;
+  /**
+   * Enable pointer events on mobjects (mobject.on("click"|"hover"|...)) and
+   * canvas-level hit-testing. Additive, not part of Python Manim.
+   * Requires a canvas element either in `canvas` option or passed to
+   * attachCanvas() post-construction. Default false.
+   */
+  interactive?: boolean;
+  /**
+   * Optional canvas element. Required for interactive mode. Ignored when
+   * running headlessly for MP4 export.
+   */
+  canvas?: HTMLCanvasElement | null;
 }
 
 // ─── Subcaption ──────────────────────────────────────────────
@@ -71,6 +90,13 @@ export class Scene implements IScene {
   private _time: number;
   private _frameRate: number;
 
+  /** Opt-in timeline recorder (null when playback not enabled). */
+  private _timeline: Timeline | null;
+  /** Opt-in pointer dispatcher (null when interactive not enabled). */
+  private _pointerDispatcher: PointerDispatcher | null;
+  /** Canvas element (used by pointer dispatcher, TimelineControls overlay). */
+  private _canvas: HTMLCanvasElement | null;
+
   constructor(options: SceneOptions = {}) {
     this.alwaysUpdateMobjects = options.alwaysUpdateMobjects ?? false;
     this.randomSeed = options.randomSeed ?? null;
@@ -92,6 +118,75 @@ export class Scene implements IScene {
     this._time = 0;
     this.subcaptions = [];
     this.numPlays = 0;
+
+    // Additive features (opt-in; no effect when disabled)
+    this._timeline = options.playback ? new Timeline(this) : null;
+    this._canvas = options.canvas ?? null;
+    this._pointerDispatcher = null;
+    if (options.interactive) {
+      this._enableInteraction();
+    }
+  }
+
+  // ─── Additive: Playback + Interaction ────────────────────
+
+  /**
+   * Access the timeline for scrubbable playback. Throws if `playback: true`
+   * was not passed to the Scene constructor. Not part of Python Manim.
+   */
+  get playback(): Timeline {
+    if (!this._timeline) {
+      throw new Error(
+        "Scene.playback is disabled. Pass { playback: true } to the Scene " +
+          "constructor to enable the timeline.",
+      );
+    }
+    return this._timeline;
+  }
+
+  /** Whether playback recording is enabled. */
+  get playbackEnabled(): boolean {
+    return this._timeline !== null;
+  }
+
+  /**
+   * Attach a canvas element after construction — useful when the canvas
+   * isn't known at Scene construction time. Enables interaction if it
+   * was requested in options.
+   */
+  attachCanvas(canvas: HTMLCanvasElement): void {
+    this._canvas = canvas;
+    // If interactive was requested but canvas was missing, wire it up now.
+    if (this._pointerDispatcher === null && this._canvas !== null) {
+      // no-op by default; _enableInteraction() is called explicitly from ctor
+    } else if (this._pointerDispatcher !== null) {
+      this._pointerDispatcher.setCanvas(canvas);
+    }
+  }
+
+  get canvas(): HTMLCanvasElement | null {
+    return this._canvas;
+  }
+
+  private _enableInteraction(): void {
+    this._pointerDispatcher = new PointerDispatcher(this);
+    if (this._canvas) {
+      this._pointerDispatcher.setCanvas(this._canvas);
+    }
+  }
+
+  /** Expose pointer dispatcher for hit-testing from user code. */
+  get pointerDispatcher(): PointerDispatcher | null {
+    return this._pointerDispatcher;
+  }
+
+  /**
+   * Find the top-most mobject under scene coordinates (x, y). Returns null
+   * if no mobject hit. Requires `interactive: true`. Not Python Manim.
+   */
+  mobjectAt(x: number, y: number): IMobject | null {
+    if (!this._pointerDispatcher) return null;
+    return this._pointerDispatcher.hitTest(x, y);
   }
 
   // ─── Properties ──────────────────────────────────────────
@@ -340,11 +435,16 @@ export class Scene implements IScene {
 
     const runTime = Math.max(...animations.map((a) => a.runTime));
 
+    // Track mobjects present before begin() so we can record introducers.
+    const preMobjects = new Set(this.mobjects);
+
     // Setup
     for (const anim of animations) {
       anim.setupScene(this);
       anim.begin();
     }
+
+    const entryStartT = this._time;
 
     this.animations = animations;
     this.lastT = 0;
@@ -401,6 +501,26 @@ export class Scene implements IScene {
     }
     this._cleanUpAfterAnimations(animations);
 
+    // Record into timeline (additive — no effect when playback disabled)
+    if (this._timeline) {
+      const postMobjects = new Set(this.mobjects);
+      const mobjectsAdded: IMobject[] = [];
+      const mobjectsRemoved: IMobject[] = [];
+      for (const m of postMobjects) {
+        if (!preMobjects.has(m)) mobjectsAdded.push(m);
+      }
+      for (const m of preMobjects) {
+        if (!postMobjects.has(m)) mobjectsRemoved.push(m);
+      }
+      this._timeline.recordPlay(
+        entryStartT,
+        this._time,
+        animations,
+        mobjectsAdded,
+        mobjectsRemoved,
+      );
+    }
+
     this.animations = null;
   }
 
@@ -412,6 +532,7 @@ export class Scene implements IScene {
       return;
     }
 
+    const startT = this._time;
     const step = 1 / this._frameRate;
     let elapsed = 0;
 
@@ -428,6 +549,11 @@ export class Scene implements IScene {
     }
 
     this._time += elapsed;
+
+    // Record wait into timeline (additive)
+    if (this._timeline) {
+      this._timeline.recordWait(startT, this._time);
+    }
   }
 
   pause(duration: number = DEFAULT_WAIT_TIME): Promise<void> {
