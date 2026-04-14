@@ -22,6 +22,7 @@
  *   --skip-typecheck     Skip typecheck gate
  *   --timeout=N          Per-agent timeout in seconds (default: 600)
  *   --model=MODEL        Base model (default: sonnet; large modules auto-upgrade to opus)
+ *   --gaps               Run gap-filling tasks (missing classes/modules) instead of main conversion
  */
 
 import { spawn, exec, ChildProcess } from "child_process";
@@ -120,6 +121,7 @@ const DRY_RUN = args.includes("--dry-run");
 const SKIP_TYPECHECK = args.includes("--skip-typecheck");
 const TIMEOUT_SEC = parseInt(getArg("timeout", "600"));
 const MODEL = getArg("model", "sonnet");
+const RUN_GAPS = args.includes("--gaps");
 
 // ─── Auto-scaling thresholds ────────────────────────────────
 // Modules above these line counts get upgraded automatically.
@@ -588,6 +590,506 @@ async function runFixUps(
   return results;
 }
 
+// ─── Gap-Filling Tasks ──────────────────────────────────────
+//
+// These tasks address missing classes/modules identified by comparing
+// the Python Manim source against the TypeScript port. Each task is
+// a self-contained agent brief with a custom prompt (no Python source
+// needed — the agent reads the existing TS code and adds what's missing).
+
+interface GapTask {
+  id: string;
+  description: string;
+  targetFile: string;
+  dependsOn: string[];
+  estimatedLines: number;
+  prompt: string;
+}
+
+const GAP_TASKS: GapTask[] = [
+  // ── Module 1: VGroup, VDict, VectorizedPoint, CurvesAsSubmobjects, DashedVMobject ──
+  {
+    id: "gaps.vectorized_mobject.vgroup",
+    description: "Add VGroup class to vectorized_mobject.ts",
+    targetFile: "src/mobject/types/vectorized_mobject.ts",
+    dependsOn: [],
+    estimatedLines: 200,
+    prompt: `# Gap Task: Add VGroup to vectorized_mobject.ts
+
+## What's Missing
+The file \`src/mobject/types/vectorized_mobject.ts\` only exports VMobject.
+Python Manim's \`vectorized_mobject.py\` also exports VGroup — a container
+that holds multiple VMobjects as submobjects.
+
+VGroup is the MOST USED class in all of Manim. It is currently redefined
+as a local stub in 15+ files across the codebase. This task creates the
+canonical, shared implementation.
+
+## What to Do
+1. Read \`src/mobject/types/vectorized_mobject.ts\` to understand VMobject
+2. Read \`src/mobject/mobject/mobject.ts\` to understand the Group pattern
+3. Add a \`VGroup\` class that extends VMobject:
+   - Constructor accepts \`...vmobjects: VMobject[]\` (adds them as submobjects)
+   - Mirrors Python's VGroup behavior exactly
+   - Overrides add() to only accept VMobject instances
+   - setStyle() propagates to all submobjects
+   - setFill() and setStroke() propagate to all submobjects
+4. Export VGroup from the barrel \`src/mobject/types/index.ts\`
+5. Run \`npm run typecheck\` to verify
+
+## Python Reference (from manim/mobject/types/vectorized_mobject.py)
+\`\`\`python
+class VGroup(VMobject):
+    def __init__(self, *vmobjects, **kwargs):
+        super().__init__(**kwargs)
+        self.add(*vmobjects)
+
+    def __repr__(self):
+        return (
+            self.__class__.__name__
+            + "("
+            + ", ".join(str(mob) for mob in self.submobjects)
+            + ")"
+        )
+
+    def __str__(self):
+        return (
+            self.__class__.__name__
+            + "("
+            + ", ".join(str(mob) for mob in self.submobjects)
+            + ")"
+        )
+
+    def add(self, *vmobjects):
+        if not all(isinstance(m, VMobject) for m in vmobjects):
+            raise TypeError("All submobjects must be of type VMobject")
+        return super().add(*vmobjects)
+
+    def __add__(self, vmobject):
+        return VGroup(*self.submobjects, vmobject)
+
+    def __iadd__(self, vmobject):
+        self.add(vmobject)
+        return self
+\`\`\`
+
+## Rules
+- Do NOT modify any files outside \`src/mobject/types/\`
+- Match Python Manim behavior exactly
+- Export from the barrel index.ts`,
+  },
+
+  {
+    id: "gaps.vectorized_mobject.vdict",
+    description: "Add VDict class to vectorized_mobject.ts",
+    targetFile: "src/mobject/types/vectorized_mobject.ts",
+    dependsOn: ["gaps.vectorized_mobject.vgroup"],
+    estimatedLines: 150,
+    prompt: `# Gap Task: Add VDict to vectorized_mobject.ts
+
+## What's Missing
+Python Manim's \`vectorized_mobject.py\` exports VDict — a dictionary-like
+VMobject container where submobjects are accessed by key names.
+
+## What to Do
+1. Read the existing \`src/mobject/types/vectorized_mobject.ts\`
+2. Add a \`VDict\` class that extends VGroup (added by previous task):
+   - Constructor accepts \`Map<string, VMobject>\` or entries array
+   - get(key) / set(key, vmobject) for named access
+   - add() updates both the dict and submobjects list
+   - remove() by key
+   - submobjects stay in sync with the internal map
+3. Export VDict from \`src/mobject/types/index.ts\`
+4. Run \`npm run typecheck\`
+
+## Python Reference
+\`\`\`python
+class VDict(VMobject):
+    def __init__(self, mapping_or_iterable={}, show_keys=False, **kwargs):
+        super().__init__(**kwargs)
+        self.show_keys = show_keys
+        self.submob_dict = {}
+        if isinstance(mapping_or_iterable, Mapping):
+            mapping_or_iterable = list(mapping_or_iterable.items())
+        for key, value in mapping_or_iterable:
+            self.add([(key, value)])
+
+    def __repr__(self):
+        return __class__.__name__ + "(" + ", ".join(
+            f"({k}, {v})" for k, v in self.submob_dict.items()
+        ) + ")"
+
+    def add(self, mapping_or_iterable, **kwargs):
+        for key, value in mapping_or_iterable:
+            self.submob_dict[key] = value
+            super().add(value)
+        return self
+
+    def remove(self, key):
+        if key in self.submob_dict:
+            super().remove(self.submob_dict[key])
+            del self.submob_dict[key]
+        return self
+
+    def __getitem__(self, key):
+        return self.submob_dict[key]
+
+    def __setitem__(self, key, value):
+        if key in self.submob_dict:
+            self.remove(key)
+        self.add([(key, value)])
+
+    def __delitem__(self, key):
+        self.remove(key)
+
+    def __contains__(self, key):
+        return key in self.submob_dict
+
+    def keys(self):
+        return self.submob_dict.keys()
+
+    def values(self):
+        return self.submob_dict.values()
+
+    def items(self):
+        return self.submob_dict.items()
+\`\`\`
+
+## Rules
+- Only modify files in \`src/mobject/types/\`
+- Match Python behavior exactly`,
+  },
+
+  {
+    id: "gaps.vectorized_mobject.utilities",
+    description: "Add VectorizedPoint, CurvesAsSubmobjects, DashedVMobject",
+    targetFile: "src/mobject/types/vectorized_mobject.ts",
+    dependsOn: ["gaps.vectorized_mobject.vgroup"],
+    estimatedLines: 250,
+    prompt: `# Gap Task: Add VectorizedPoint, CurvesAsSubmobjects, DashedVMobject
+
+## What's Missing
+Python Manim's \`vectorized_mobject.py\` exports three utility classes that
+are missing from the TypeScript port:
+
+1. **VectorizedPoint** — An invisible single-point VMobject used as a
+   positional anchor/reference point.
+2. **CurvesAsSubmobjects** — Takes a VMobject and splits each of its
+   bezier curves into individual VMobject submobjects.
+3. **DashedVMobject** — Renders any VMobject with a dashed stroke pattern
+   by sampling points along the path and creating dash segments.
+
+## What to Do
+1. Read \`src/mobject/types/vectorized_mobject.ts\` for VMobject/VGroup
+2. Add all three classes to the same file
+3. Export them from \`src/mobject/types/index.ts\`
+4. Run \`npm run typecheck\`
+
+## Python Reference
+
+### VectorizedPoint
+\`\`\`python
+class VectorizedPoint(VMobject):
+    def __init__(self, location=ORIGIN, color=BLACK,
+                 fill_opacity=0, stroke_width=0, **kwargs):
+        self.location = location
+        super().__init__(
+            color=color, fill_opacity=fill_opacity,
+            stroke_width=stroke_width, **kwargs
+        )
+        self.set_points(np.array([location]))
+
+    def get_location(self):
+        return np.array(self.points[0])
+
+    def set_location(self, new_loc):
+        self.set_points(np.array([new_loc]))
+\`\`\`
+
+### CurvesAsSubmobjects
+\`\`\`python
+class CurvesAsSubmobjects(VGroup):
+    def __init__(self, vmobject, **kwargs):
+        super().__init__(**kwargs)
+        for tup in vmobject.get_cubic_bezier_tuples():
+            part = VMobject()
+            part.set_points(tup)
+            part.match_style(vmobject)
+            self.add(part)
+\`\`\`
+
+### DashedVMobject
+\`\`\`python
+class DashedVMobject(VMobject):
+    def __init__(self, vmobject, num_dashes=15,
+                 dashed_ratio=0.5, dash_offset=0,
+                 color=WHITE, **kwargs):
+        self.dashed_ratio = dashed_ratio
+        self.num_dashes = num_dashes
+        super().__init__(color=color, **kwargs)
+        # ... creates dashes by sampling vmobject at intervals
+\`\`\`
+
+## Rules
+- Only modify files in \`src/mobject/types/\`
+- Match Python Manim behavior exactly`,
+  },
+
+  // ── Module 2: ParametricSurface ──
+  {
+    id: "gaps.three_d.parametric_surface",
+    description: "Add ParametricSurface to three_dimensions.ts",
+    targetFile: "src/mobject/three_d/three_dimensions.ts",
+    dependsOn: [],
+    estimatedLines: 200,
+    prompt: `# Gap Task: Add ParametricSurface to three_dimensions.ts
+
+## What's Missing
+Python Manim's \`three_dimensions.py\` exports ParametricSurface — a subclass
+of Surface that takes a user-defined function (u, v) → (x, y, z) and generates
+the 3D mesh. The TypeScript port has Surface but not ParametricSurface.
+
+## What to Do
+1. Read \`src/mobject/three_d/three_dimensions.ts\` to understand the Surface class
+2. Add ParametricSurface as a subclass of Surface:
+   - Constructor takes \`func: (u: number, v: number) => Point3D\`
+   - uRange and vRange parameters (default [-1, 1])
+   - resolution parameter (default [32, 32])
+   - Generates the mesh by evaluating func over the UV grid
+3. Export from \`src/mobject/three_d/index.ts\`
+4. Run \`npm run typecheck\`
+
+## Python Reference
+\`\`\`python
+class ParametricSurface(Surface):
+    def __init__(
+        self,
+        func,
+        u_range=[-1, 1],
+        v_range=[-1, 1],
+        resolution=(32, 32),
+        **kwargs
+    ):
+        self.func = func
+        self.u_range = u_range
+        self.v_range = v_range
+        self.resolution = resolution
+        super().__init__(**kwargs)
+
+    def uv_func(self, u, v):
+        return self.func(u, v)
+
+    def init_points(self):
+        u_values = np.linspace(*self.u_range, self.resolution[0])
+        v_values = np.linspace(*self.v_range, self.resolution[1])
+        # Build mesh from func evaluations ...
+\`\`\`
+
+## Rules
+- Only modify files in \`src/mobject/three_d/\`
+- Match Python Manim behavior exactly`,
+  },
+
+  // ── Module 3: OpenGL Compatibility ──
+  {
+    id: "gaps.opengl.compatibility",
+    description: "Add ConvertToOpenGL compatibility layer",
+    targetFile: "src/mobject/opengl/opengl_compatibility.ts",
+    dependsOn: [],
+    estimatedLines: 100,
+    prompt: `# Gap Task: Add OpenGL Compatibility Layer
+
+## What's Missing
+Python Manim has \`mobject/opengl/opengl_compatibility.py\` which exports a
+\`ConvertToOpenGL\` metaclass. This enables runtime switching between Cairo
+and OpenGL mobject backends — animation code is renderer-agnostic.
+
+In TypeScript we can't use metaclasses, but we can achieve the same effect
+with a factory/registry pattern.
+
+## What to Do
+1. Create \`src/mobject/opengl/opengl_compatibility.ts\`
+2. Implement a compatibility layer that:
+   - Maintains a registry mapping standard classes to OpenGL equivalents
+     (e.g., VMobject → OpenGLVMobject, Mobject → OpenGLMobject)
+   - Provides a \`convertToOpenGL(MobjectClass)\` function that returns
+     the OpenGL equivalent class if one is registered
+   - Provides a \`registerOpenGLEquivalent(standard, opengl)\` function
+   - Works at the class level (not instance level)
+3. Export from \`src/mobject/opengl/index.ts\`
+4. Run \`npm run typecheck\`
+
+## Python Reference
+\`\`\`python
+class ConvertToOpenGL(type):
+    _opengl_class_mapping = {}
+
+    def __new__(mcls, name, bases, namespace):
+        cls = super().__new__(mcls, name, bases, namespace)
+        opengl_cls_name = "OpenGL" + name
+        for parent_module in sys.modules.values():
+            opengl_cls = getattr(parent_module, opengl_cls_name, None)
+            if opengl_cls is not None:
+                mcls._opengl_class_mapping[cls] = opengl_cls
+                break
+        return cls
+
+    @classmethod
+    def get_opengl_class(mcls, cls):
+        return mcls._opengl_class_mapping.get(cls, cls)
+\`\`\`
+
+## TypeScript Approach
+Since TS has no metaclasses, use a Map-based registry:
+\`\`\`typescript
+const openglClassMap = new Map<Function, Function>();
+
+export function registerOpenGLEquivalent(standard: Function, opengl: Function): void {
+  openglClassMap.set(standard, opengl);
+}
+
+export function convertToOpenGL<T extends Function>(cls: T): T {
+  return (openglClassMap.get(cls) as T) ?? cls;
+}
+\`\`\`
+
+## Rules
+- Create \`src/mobject/opengl/opengl_compatibility.ts\` as a new file
+- Only modify files in \`src/mobject/opengl/\`
+- Keep it simple — factory/registry pattern, not metaclass emulation`,
+  },
+
+  // ── Module 4: ImageMobject barrel export ──
+  {
+    id: "gaps.types.image_mobject_export",
+    description: "Ensure ImageMobject is exported from types barrel",
+    targetFile: "src/mobject/types/index.ts",
+    dependsOn: [],
+    estimatedLines: 20,
+    prompt: `# Gap Task: Verify ImageMobject Barrel Export
+
+## What to Do
+1. Read \`src/mobject/types/index.ts\`
+2. Read \`src/mobject/types/image_mobject/index.ts\`
+3. Verify ImageMobject is properly exported from the types barrel
+4. If not, add the export
+5. Run \`npm run typecheck\`
+
+## Rules
+- Only modify \`src/mobject/types/index.ts\` if needed
+- Do NOT modify any other files`,
+  },
+];
+
+/** Convert a GapTask into a TaskNode compatible with the orchestrator's runner. */
+function gapToTaskNode(gap: GapTask): TaskNode {
+  return {
+    module: gap.id,
+    pythonFiles: [],
+    dependsOn: gap.dependsOn,
+    estimatedLines: gap.estimatedLines,
+    layer: 99, // gap tasks run in their own "layer"
+    priority: 0,
+  };
+}
+
+/** Build a full agent prompt for a gap task (includes conventions + type stubs). */
+function buildGapPrompt(gap: GapTask): string {
+  const conventions = readFileSync(join(ROOT, "CONVENTIONS.md"), "utf-8");
+  const typeStubs = readFileSync(join(ROOT, "src", "core", "types.ts"), "utf-8");
+
+  return `${gap.prompt}
+
+## Shared Conventions
+${conventions}
+
+## Type Contracts
+\`\`\`typescript
+${typeStubs}
+\`\`\`
+
+## Quality Checklist
+- [ ] No \`any\` types
+- [ ] All numpy operations use numpy-ts via \`src/core/math/index.ts\`
+- [ ] Barrel index.ts updated with new exports
+- [ ] \`npm run typecheck\` passes
+- [ ] No files modified outside the target module directory
+`;
+}
+
+/** Run gap-filling tasks through the same agent infrastructure. */
+async function runGapTasks(allResults: AgentResult[]): Promise<void> {
+  let tasks = GAP_TASKS;
+  if (ONLY_MODULE) {
+    tasks = tasks.filter((g) => g.id === ONLY_MODULE);
+  }
+
+  const completedModules = loadCompletedModules();
+  const pending = tasks.filter((g) => !completedModules.has(g.id));
+
+  if (pending.length === 0) {
+    log("info", "All gap tasks already completed");
+    return;
+  }
+
+  log("info", `Running ${pending.length} gap-filling tasks`);
+
+  const done = new Set<string>(completedModules);
+  const active = new Map<string, Promise<AgentResult>>();
+  const inProgress = new Set<string>();
+
+  // Map gap IDs to their GapTask for prompt building
+  const gapMap = new Map<string, GapTask>();
+  for (const g of pending) gapMap.set(g.id, g);
+
+  function getReady(): GapTask[] {
+    const ready: GapTask[] = [];
+    for (const g of pending) {
+      if (done.has(g.id) || inProgress.has(g.id)) continue;
+      const depsReady = g.dependsOn.every((d) => done.has(d));
+      if (depsReady) ready.push(g);
+    }
+    return ready;
+  }
+
+  let remaining = pending.length;
+  while (remaining > 0 || active.size > 0) {
+    const ready = getReady();
+    while (active.size < MAX_PARALLEL && ready.length > 0) {
+      const gap = ready.shift()!;
+      const taskNode = gapToTaskNode(gap);
+      inProgress.add(gap.id);
+
+      const prompt = buildGapPrompt(gap);
+      const p = runAgentWithPrompt(taskNode, prompt).then((result) => {
+        active.delete(gap.id);
+        inProgress.delete(gap.id);
+        allResults.push(result);
+
+        if (result.success) {
+          done.add(gap.id);
+          remaining--;
+          log("success", `Gap task ${gap.id}: ${gap.description}`);
+        } else {
+          done.add(gap.id); // don't block dependents
+          remaining--;
+          log("warn", `Gap task ${gap.id} failed — dependents will still attempt`);
+        }
+        return result;
+      });
+      active.set(gap.id, p);
+    }
+
+    if (active.size > 0) {
+      await Promise.race(active.values());
+    } else if (remaining > 0) {
+      const stuck = pending.filter((g) => !done.has(g.id)).map((g) => g.id);
+      log("error", `Deadlock in gap tasks: ${stuck.join(", ")}`);
+      break;
+    }
+  }
+}
+
 // ─── Main ────────────────────────────────────────────────────
 
 async function main() {
@@ -642,6 +1144,38 @@ ${COLORS.bold}╔═════════════════════
     }
   }
 
+  // ─── Gap-filling mode ──────────────────────────────────────
+  if (RUN_GAPS) {
+    console.log(
+      `\n${COLORS.bold}═══ Gap-Filling Mode: ${GAP_TASKS.length} tasks ═══${COLORS.reset}\n`
+    );
+    for (const g of GAP_TASKS) {
+      const status = completedModules.has(g.id) ? `${COLORS.success}done${COLORS.reset}` : "pending";
+      log("info", `  ${g.id} — ${g.description} [${status}]`);
+    }
+    console.log();
+
+    await runGapTasks(allResults);
+
+    if (!DRY_RUN) {
+      writeFileSync(RESULTS_FILE, JSON.stringify(allResults, null, 2));
+    }
+
+    // Type check after gap tasks
+    if (!SKIP_TYPECHECK && !DRY_RUN) {
+      log("info", "Running type check after gap tasks...");
+      const { pass, errors } = await runTypeCheck();
+      if (pass) {
+        log("success", "Type check passed");
+      } else {
+        log("error", "Type check failed. Errors saved to typecheck-errors.log");
+        writeFileSync(join(ROOT, "typecheck-errors.log"), errors);
+      }
+    }
+
+  } else {
+
+  // ─── Normal conversion mode ──────────────────────────────────
   // Gather all tasks, filtered by --start-layer and --only
   let allTasks = taskGraph.tasks.filter((t) => t.layer >= START_LAYER);
   if (ONLY_MODULE) {
@@ -708,6 +1242,8 @@ ${COLORS.bold}╔═════════════════════
       rmSync(layerSnapshotDir, { recursive: true, force: true });
     }
   }
+
+  } // end normal conversion mode
 
   // ─── Final Summary ──────────────────────────────────────────
   console.log(`\n${COLORS.bold}═══ Final Summary ═══${COLORS.reset}\n`);

@@ -29,6 +29,7 @@ export default defineConfig({
       "os": nodeStub,
       "url": nodeStub,
       "child_process": nodeStub,
+      "crypto": nodeStub,
       // Stub out Node-only native packages
       "@napi-rs/canvas": nodeStub,
       "sharp": nodeStub,

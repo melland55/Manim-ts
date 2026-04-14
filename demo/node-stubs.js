@@ -27,15 +27,27 @@ export function tmpdir() { return "/tmp"; }
 export function homedir() { return "/"; }
 export function platform() { return "browser"; }
 
+// child_process stubs
+export function spawnSync() { return { status: 1, stdout: "", stderr: "not available in browser", error: null }; }
+export function spawn() { return { on() {}, stdout: { on() {} }, stderr: { on() {} }, kill() {} }; }
+export function exec() {}
+export class ChildProcess {}
+
+// crypto stubs
+export function createHash() { return { update() { return this; }, digest() { return "stub-hash"; } }; }
+export function randomBytes(n) { return new Uint8Array(n); }
+
 // url stubs
 export function fileURLToPath(u) { return u; }
 export function pathToFileURL(p) { return p; }
 
-// default export (for `import * as mod`)
+// default export (for `import * as mod` and `import crypto from "crypto"`)
 export default {
   readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync,
   statSync, unlinkSync,
   join, resolve, dirname, basename, extname, sep, posix,
   tmpdir, homedir, platform,
   fileURLToPath, pathToFileURL,
+  spawnSync, spawn, exec, ChildProcess,
+  createHash, randomBytes,
 };

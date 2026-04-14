@@ -28,7 +28,32 @@
       border-radius: 6px;
       max-width: 100%;
       height: auto;
+      display: block;
     }
+
+    /* ── Canvas + text overlay wrapper ──────────── */
+    .canvas-wrap {
+      position: relative;
+      display: inline-block;
+      max-width: 100%;
+    }
+    #text-overlay {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      pointer-events: none;
+      overflow: hidden;
+    }
+    #text-overlay .text-el {
+      position: absolute;
+      transform: translate(-50%, -50%);
+      white-space: nowrap;
+      font-family: "Latin Modern Math", "Cambria Math", "STIX Two Math", serif;
+      color: #eee;
+      line-height: 1;
+      user-select: none;
+    }
+    #text-overlay .text-el.left  { transform: translate(0, -50%); }
+    #text-overlay .text-el.right { transform: translate(-100%, -50%); }
 
     /* ── Category tabs ─────────────────────────── */
     .tabs {
@@ -105,13 +130,28 @@
 </head>
 <body>
   <h1>manim-ts — Full Engine Test</h1>
-  <canvas id="manim-canvas" width="1280" height="720"></canvas>
+  <div class="canvas-wrap">
+    <canvas id="manim-canvas" width="1280" height="720"></canvas>
+    <div id="text-overlay"></div>
+  </div>
 
   <!-- Category tabs -->
   <div class="tabs">
     <div class="tab active" data-panel="geometry">Geometry</div>
+    <div class="tab" data-panel="arrows">Arrows & Tips</div>
+    <div class="tab" data-panel="arcs">Arcs & Curves</div>
+    <div class="tab" data-panel="polygram">Polygram</div>
     <div class="tab" data-panel="transforms">Transforms</div>
     <div class="tab" data-panel="animations">Animations</div>
+    <div class="tab" data-panel="boolops">Boolean Ops</div>
+    <div class="tab" data-panel="matchers">Shape Matchers</div>
+    <div class="tab" data-panel="braces">Braces</div>
+    <div class="tab" data-panel="graphing">Graphing</div>
+    <div class="tab" data-panel="graphs">Graph Theory</div>
+    <div class="tab" data-panel="3d">3D Shapes</div>
+    <div class="tab" data-panel="text">Text &amp; Equations</div>
+    <div class="tab" data-panel="vectorfield">Vector Fields</div>
+    <div class="tab" data-panel="valuetracker">ValueTracker</div>
     <div class="tab" data-panel="colors">Colors</div>
     <div class="tab" data-panel="stress">Stress Test</div>
   </div>
@@ -129,6 +169,24 @@
     <button onclick="clearScene()">Clear</button>
   </div>
 
+  <!-- Arrows & Tips panel -->
+  <div class="panel" id="panel-arrows">
+    <button onclick="testArrows()">Arrow, DoubleArrow, DashedLine, Vector, Elbow</button>
+    <button onclick="clearScene()">Clear</button>
+  </div>
+
+  <!-- Arcs & Curves panel -->
+  <div class="panel" id="panel-arcs">
+    <button onclick="testArcsAndCurves()">Dot, Ellipse, Sector, Annulus, ArcBetweenPoints</button>
+    <button onclick="clearScene()">Clear</button>
+  </div>
+
+  <!-- Polygram panel -->
+  <div class="panel" id="panel-polygram">
+    <button onclick="testPolygramExtras()">Star, Rectangle, RoundedRectangle</button>
+    <button onclick="clearScene()">Clear</button>
+  </div>
+
   <!-- Transforms panel -->
   <div class="panel" id="panel-transforms">
     <button onclick="testShift()">Shift</button>
@@ -143,11 +201,65 @@
   <div class="panel" id="panel-animations">
     <button onclick="animCreate()">Create</button>
     <button onclick="animGrow()">GrowFromCenter</button>
-    <button onclick="animFadeIn()">FadeIn</button>
-    <button onclick="animFadeOut()">FadeOut</button>
+    <button onclick="animSpinIn()">SpinInFromNothing</button>
+    <button onclick="animFade()">Fade In/Out</button>
     <button onclick="animRotate()">Rotate</button>
+    <button onclick="animShift()">Shift</button>
+    <button onclick="animIndicate()">Indicate</button>
     <button onclick="animTransform()">Transform (morph)</button>
-    <button onclick="animSequence()">Full Sequence</button>
+    <button onclick="clearScene()">Clear</button>
+  </div>
+
+  <!-- Boolean Ops panel -->
+  <div class="panel" id="panel-boolops">
+    <button onclick="testBooleanOps()">Union, Intersection, Difference, Exclusion</button>
+    <button onclick="clearScene()">Clear</button>
+  </div>
+
+  <!-- Shape Matchers panel -->
+  <div class="panel" id="panel-matchers">
+    <button onclick="testShapeMatchers()">SurroundingRectangle, BackgroundRectangle, Cross, Underline</button>
+    <button onclick="clearScene()">Clear</button>
+  </div>
+
+  <!-- Braces panel -->
+  <div class="panel" id="panel-braces">
+    <button onclick="testBraces()">Brace, BraceBetweenPoints</button>
+    <button onclick="clearScene()">Clear</button>
+  </div>
+
+  <!-- Graphing panel -->
+  <div class="panel" id="panel-graphing">
+    <button onclick="testNumberLine()">NumberLine</button>
+    <button onclick="testAxes()">Axes</button>
+    <button onclick="testFunctionGraph()">Functions (sin, cos, parabola)</button>
+    <button onclick="testParametricCurves()">Parametric Curves (Lissajous, spiral, rose)</button>
+    <button onclick="clearScene()">Clear</button>
+  </div>
+
+  <!-- Graph Theory panel -->
+  <div class="panel" id="panel-graphs">
+    <button onclick="testGraph()">Graph (undirected)</button>
+    <button onclick="testDiGraph()">DiGraph (directed)</button>
+    <button onclick="clearScene()">Clear</button>
+  </div>
+
+  <!-- 3D Shapes panel -->
+  <div class="panel" id="panel-3d">
+    <button onclick="test3DShapes()">Sphere, Cube, Cone, Cylinder, Torus</button>
+    <button onclick="testPolyhedra()">Tetrahedron, Octahedron, Icosahedron, Dodecahedron</button>
+    <button onclick="clearScene()">Clear</button>
+  </div>
+
+  <!-- Vector Fields panel -->
+  <div class="panel" id="panel-vectorfield">
+    <button onclick="testVectorField()">ArrowVectorField</button>
+    <button onclick="clearScene()">Clear</button>
+  </div>
+
+  <!-- ValueTracker panel -->
+  <div class="panel" id="panel-valuetracker">
+    <button onclick="testValueTracker()">ValueTracker (concentric circles)</button>
     <button onclick="clearScene()">Clear</button>
   </div>
 
