@@ -31,7 +31,7 @@ export default defineConfig({
       "child_process": nodeStub,
       "crypto": nodeStub,
       // Stub out Node-only native packages
-      "@napi-rs/canvas": nodeStub,
+      "canvas": nodeStub,
       "sharp": nodeStub,
       "fluent-ffmpeg": nodeStub,
       "chokidar": nodeStub,
@@ -49,6 +49,6 @@ export default defineConfig({
     // Don't pre-bundle numpy-ts — it's already ESM with proper named exports.
     // Pre-bundling breaks it because esbuild tries to resolve guarded dynamic
     // imports to node:fs/promises which don't exist in the browser.
-    exclude: ["numpy-ts", "@napi-rs/canvas", "sharp", "fluent-ffmpeg", "chokidar"],
+    exclude: ["numpy-ts", "canvas", "sharp", "fluent-ffmpeg", "chokidar"],
   },
 });

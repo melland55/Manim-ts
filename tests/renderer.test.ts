@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { createCanvas } from "@napi-rs/canvas";
+import { createCanvas } from "canvas";
 import { Renderer } from "../src/renderer/index.js";
 import { BLACK, WHITE, RED, BLUE } from "../src/core/color/index.js";
 import { np, ORIGIN } from "../src/core/math/index.js";

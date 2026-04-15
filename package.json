@@ -4,7 +4,7 @@
   "description": "TypeScript port of Manim (Mathematical Animation Engine)",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts",
+    ".": "./src/__init__/index.ts",
     "./react": "./src/integrations/react.tsx",
     "./vue": "./src/integrations/vue.ts",
     "./timeline": "./src/scene/timeline/index.ts",
@@ -15,8 +15,12 @@
     "vue": ">=3"
   },
   "peerDependenciesMeta": {
-    "react": { "optional": true },
-    "vue": { "optional": true }
+    "react": {
+      "optional": true
+    },
+    "vue": {
+      "optional": true
+    }
   },
   "scripts": {
     "build": "tsc",
@@ -32,8 +36,8 @@
   },
   "dependencies": {
     "@mapbox/polylabel": "^1.0.2",
-    "@napi-rs/canvas": "^0.1.97",
     "bezier-js": "^6.1.4",
+    "canvas": "^3.2.3",
     "cheerio": "^1.2.0",
     "chokidar": "^5.0.0",
     "convex-hull": "^1.0.3",
@@ -44,20 +48,30 @@
     "highlight.js": "^11.11.1",
     "isosurface": "^1.0.0",
     "katex": "^0.16.45",
+    "mathjax-full": "^3.2.2",
     "numpy-ts": "^1.2.0",
+    "opentype.js": "^1.3.4",
     "polygon-clipping": "^0.15.7",
     "sharp": "^0.34.5",
-    "svg-path-commander": "^2.2.1"
+    "svg-path-commander": "^2.2.1",
+    "three": "^0.169.0"
   },
   "devDependencies": {
     "@types/earcut": "^3.0.0",
     "@types/fluent-ffmpeg": "^2.1.28",
     "@types/katex": "^0.16.8",
     "@types/node": "^22.0.0",
+    "@types/opentype.js": "^1.3.8",
+    "@types/pngjs": "^6.0.5",
+    "@types/three": "^0.169.0",
+    "@typopro/dtp-latin-modern": "^3.7.5",
     "graphology-types": "^0.24.8",
+    "pixelmatch": "^7.1.0",
+    "pngjs": "^7.0.0",
     "tsx": "^4.16.0",
     "typescript": "^5.5.0",
     "vite": "^5.4.21",
-    "vitest": "^2.0.0"
+    "vitest": "^2.0.0",
+    "web-computer-modern": "^1.1.0-new-cm-7-0-2"
   }
 }

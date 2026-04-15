@@ -1,8 +1,10 @@
 /**
  * Canvas factory — environment-agnostic canvas creation.
  *
- * In Node.js, uses @napi-rs/canvas (Skia native bindings).
- * In the browser, uses the built-in HTMLCanvasElement.
+ * In Node.js, uses `canvas` (node-canvas, libcairo + Pango bindings) so the
+ * rasterizer matches Python Manim's pycairo byte-for-byte. This enables
+ * strict pixel-diffing against Python Manim golden images.
+ * In the browser, uses the built-in HTMLCanvasElement (Skia via Chromium).
  *
  * Both return a standard Canvas2D interface, so all rendering code
  * works identically in either environment.
@@ -51,14 +53,14 @@ export interface CanvasContext2D {
 export const isBrowser =
   typeof window !== "undefined" && typeof document !== "undefined";
 
-/** Cached reference to @napi-rs/canvas createCanvas (loaded lazily in Node). */
-let _napiCreateCanvas: ((w: number, h: number) => any) | null = null;
+/** Cached reference to node-canvas createCanvas (loaded lazily in Node). */
+let _nodeCreateCanvas: ((w: number, h: number) => any) | null = null;
 
 /**
  * Create a canvas of the given dimensions.
  *
  * - Browser: creates an HTMLCanvasElement
- * - Node.js: uses @napi-rs/canvas
+ * - Node.js: uses `canvas` (node-canvas, libcairo)
  */
 export function createCanvas(width: number, height: number): CanvasLike {
   if (isBrowser) {
@@ -68,21 +70,21 @@ export function createCanvas(width: number, height: number): CanvasLike {
     return c as unknown as CanvasLike;
   }
 
-  // Node.js — lazy-load @napi-rs/canvas
-  if (!_napiCreateCanvas) {
+  // Node.js — lazy-load node-canvas (libcairo binding)
+  if (!_nodeCreateCanvas) {
     try {
       // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const napi = require("@napi-rs/canvas");
-      _napiCreateCanvas = napi.createCanvas;
+      const nodeCanvas = require("canvas");
+      _nodeCreateCanvas = nodeCanvas.createCanvas;
     } catch {
       throw new Error(
         "No canvas implementation available. " +
-        "Install @napi-rs/canvas for Node.js, or run in a browser."
+        "Install `canvas` (node-canvas) for Node.js, or run in a browser."
       );
     }
   }
 
-  return _napiCreateCanvas!(width, height) as unknown as CanvasLike;
+  return _nodeCreateCanvas!(width, height) as unknown as CanvasLike;
 }
 
 /**
