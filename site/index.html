@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>manim-ts Gallery — side-by-side with Manim Community</title>
+    <meta name="description" content="Example gallery for manim-ts, shown side-by-side with the official Manim Community examples." />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script>
+      // Minimal process shim — the engine reads process.stdout.isTTY at
+      // module init. Must run before any module scripts load.
+      window.process = window.process || {
+        env: {},
+        platform: "browser",
+        stdout: { isTTY: false },
+        stderr: { isTTY: false },
+        cwd: function () { return "/"; },
+      };
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
