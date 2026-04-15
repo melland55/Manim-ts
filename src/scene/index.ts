@@ -5,6 +5,9 @@
 export { Scene, EndSceneEarlyError } from "./scene/index.js";
 export type { SceneOptions } from "./scene/index.js";
 
+export { ThreeScene } from "./three_scene.js";
+export type { ThreeSceneOptions } from "./three_scene.js";
+
 export { Section, DefaultSectionType, getVideoMetadata } from "./section/index.js";
 export type { VideoMetadata } from "./section/index.js";
 

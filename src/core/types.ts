@@ -53,6 +53,11 @@ export interface ManimConfig {
   backgroundColor: IColor;
   mediaDir: string;
   quality: "low" | "medium" | "high" | "fourk";
+  /**
+   * Renderer backend selection. Mirrors ManimCE's `config.renderer`.
+   * @default "cairo"
+   */
+  renderer?: "cairo" | "opengl";
 }
 
 // ─── Mobject ─────────────────────────────────────────────────

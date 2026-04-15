@@ -12,6 +12,8 @@ export function mkdirSync() {}
 export function readdirSync() { return []; }
 export function statSync() { return { isDirectory: () => false, isFile: () => false }; }
 export function unlinkSync() {}
+export function accessSync() { throw new Error("fs.accessSync not available in browser"); }
+export const constants = { F_OK: 0, R_OK: 4, W_OK: 2, X_OK: 1 };
 
 // path stubs
 export function join(...args) { return args.join("/"); }
