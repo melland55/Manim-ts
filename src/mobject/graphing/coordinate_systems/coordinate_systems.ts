@@ -1337,12 +1337,24 @@ export class NumberPlane extends Axes {
       ranges[2].push(x);
     }
 
+    // Python Manim passes **self.background_line_style / **self.faded_line_style
+    // into each Line — without this, every grid line falls back to Line's
+    // default stroke (WHITE) and the NumberPlane loses its blue grid.
+    const bgStyle = (this.backgroundLineStyle ?? {}) as Record<string, unknown>;
+    const fadedStyle = (this.fadedLineStyle ?? bgStyle) as Record<string, unknown>;
+
     for (const inputs of ranges) {
       for (let k = 0; k < inputs.length; k++) {
         const x = inputs[k];
-        const newLine = new Line({ start: lineStart, end: lineEnd });
+        const isMajor = (k + 1) % ratioFadedLines === 0;
+        const style = isMajor ? bgStyle : fadedStyle;
+        const newLine = new Line({
+          start: lineStart,
+          end: lineEnd,
+          ...(style as Record<string, unknown>),
+        } as ConstructorParameters<typeof Line>[0]);
         newLine.shift((unitVector as NDArray).multiply(x) as Point3D);
-        if ((k + 1) % ratioFadedLines === 0) {
+        if (isMajor) {
           lines1.add(newLine);
         } else {
           lines2.add(newLine);
