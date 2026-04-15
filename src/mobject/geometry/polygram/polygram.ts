@@ -304,13 +304,18 @@ export class Polygram extends VMobject {
   ) {
     const resolvedColor = options.color ?? options.strokeColor ?? BLUE;
     // Strip `color` from options to avoid passing it to Mobject's constructor
-    // (Mobject uses ManimColor.parse which doesn't accept core/color Color objects)
+    // (Mobject uses ManimColor.parse which doesn't accept core/color Color objects).
+    // Cascade `color` to BOTH fill and stroke so Polygram matches VMobject base
+    // semantics (and Python Manim, where `color=` sets both). Without this the
+    // fill falls through to DEFAULT_FILL_COLOR=WHITE.
     const { color: _c, ...restOpts } = options;
     super({
       ...restOpts,
-      strokeColor: resolvedColor,
+      fillColor: options.fillColor ?? resolvedColor,
+      strokeColor: options.strokeColor ?? resolvedColor,
     });
-    this.strokeColor = resolvedColor;
+    this.strokeColor = options.strokeColor ?? resolvedColor;
+    this.fillColor = options.fillColor ?? resolvedColor;
 
     for (const vertices of vertexGroups) {
       const verts = this._toPoint3DArray(vertices);
@@ -445,10 +450,14 @@ export class Polygram extends VMobject {
       const rotatedArcs = [arcs[arcs.length - 1], ...arcs.slice(0, -1)];
 
       const arcPairs = adjacentPairs(rotatedArcs);
-      for (const [arc1, arc2] of arcPairs) {
-        // Collect arc1 points
+      for (let pairIdx = 0; pairIdx < arcPairs.length; pairIdx++) {
+        const [arc1, arc2] = arcPairs[pairIdx];
+        // Collect arc1 points. For every pair after the first, the arc's
+        // first anchor duplicates the previous line's last anchor — skip it
+        // so the 3k+1 bezier layout stays valid.
         const n1 = arc1.getNumPoints();
-        for (let i = 0; i < n1; i++) {
+        const arcStartIdx = pairIdx === 0 ? 0 : 1;
+        for (let i = arcStartIdx; i < n1; i++) {
           newPoints.push(getRow(arc1.points, i));
         }
 
@@ -464,8 +473,9 @@ export class Polygram extends VMobject {
           insertNCurves(line, Math.ceil(lineLen / averageArcLength));
         }
 
+        // Line's first anchor duplicates arc1's last anchor — always skip it.
         const nLine = line.getNumPoints();
-        for (let i = 0; i < nLine; i++) {
+        for (let i = 1; i < nLine; i++) {
           newPoints.push(getRow(line.points, i));
         }
       }
