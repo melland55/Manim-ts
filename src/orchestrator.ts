@@ -23,6 +23,7 @@
  *   --timeout=N          Per-agent timeout in seconds (default: 600)
  *   --model=MODEL        Base model (default: sonnet; large modules auto-upgrade to opus)
  *   --gaps               Run gap-filling tasks (missing classes/modules) instead of main conversion
+ *   --three-js           Run the three.js migration swarm (renderer + text/math backend)
  */
 
 import { spawn, exec, ChildProcess } from "child_process";
@@ -122,6 +123,8 @@ const SKIP_TYPECHECK = args.includes("--skip-typecheck");
 const TIMEOUT_SEC = parseInt(getArg("timeout", "600"));
 const MODEL = getArg("model", "sonnet");
 const RUN_GAPS = args.includes("--gaps");
+const RUN_THREE_JS = args.includes("--three-js");
+const RUN_RENDERER_MODE = args.includes("--renderer-mode");
 
 // ─── Auto-scaling thresholds ────────────────────────────────
 // Modules above these line counts get upgraded automatically.
@@ -1090,6 +1093,947 @@ async function runGapTasks(allResults: AgentResult[]): Promise<void> {
   }
 }
 
+// ─── three.js Migration Tasks ───────────────────────────────
+//
+// Moves the rendering backend from @napi-rs/canvas / Canvas2D to three.js
+// (WebGL). Engine math/mobjects/animations are preserved; only the
+// renderer + text/math backend change. Uses three.js for the renderer,
+// MathJax for math, and opentype.js for text glyphs.
+//
+// Run with:  npx tsx src/orchestrator.ts --three-js
+//
+// Phases:
+//   1. Foundation   — three.js renderer singleton, materials, geometry builders
+//   2. Mobject      — VMobject/Mobject → three.js Object3D adapters
+//   3. Scene        — scene/camera wiring, resize, family syncer
+//   4. Text & Math  — MathJax LaTeX→SVG→VMobject, opentype.js glyphs
+//   5. 3D           — Surface / Polyhedron normals + lighting
+//   6. Demo         — migrate demo/real-demo.ts + index.html to three.js
+//   7. Cleanup      — retire Canvas2D paths, dispose helpers, smoke tests
+//   8. Docs         — migration guide, API changes, CHANGES.md
+
+const THREE_JS_TASKS: GapTask[] = [
+  // ── Phase 1: Foundation ────────────────────────────────────
+  {
+    id: "threejs.core.renderer",
+    description: "Create three.js renderer singleton + WebGL canvas bootstrapping",
+    targetFile: "src/renderer/three/three_renderer.ts",
+    dependsOn: [],
+    estimatedLines: 250,
+    prompt: `# three.js Task: Renderer Singleton
+
+Create \`src/renderer/three/three_renderer.ts\` exporting a \`ThreeRenderer\`
+class that owns a single \`THREE.WebGLRenderer\`, a \`THREE.Scene\`, and a
+camera slot.
+
+## Responsibilities
+- Attach to a provided \`HTMLCanvasElement\` (antialias: true, alpha: true).
+- Configure sRGB output, tone mapping off (linear for accurate Manim colors).
+- Expose \`render()\`, \`resize(w, h)\`, \`setCamera(cam)\`, \`dispose()\`.
+- Expose the underlying \`THREE.Scene\` for mobject adapters to attach to.
+- Use \`PerspectiveCamera\` by default; accept \`OrthographicCamera\` too.
+- Set clear color from Manim's \`config.background_color\` when available.
+
+## Rules
+- Install deps via npm if missing: \`three\`, \`@types/three\`.
+- Export from \`src/renderer/three/index.ts\` (create barrel).
+- Do NOT modify any file outside \`src/renderer/three/\`.
+- \`npm run typecheck\` must pass.`,
+  },
+
+  {
+    id: "threejs.core.materials",
+    description: "Stroke + fill materials (Line2 / MeshBasicMaterial wrappers)",
+    targetFile: "src/renderer/three/three_materials.ts",
+    dependsOn: ["threejs.core.renderer"],
+    estimatedLines: 180,
+    prompt: `# three.js Task: Materials
+
+Create \`src/renderer/three/three_materials.ts\` with two factories:
+
+- \`makeStrokeMaterial(color, width, opacity)\` — returns a \`LineMaterial\`
+  from \`three/examples/jsm/lines/LineMaterial.js\` (world-space stroke width,
+  NOT the gl line-width which is driver-limited).
+- \`makeFillMaterial(color, opacity)\` — returns a \`MeshBasicMaterial\`
+  (side: THREE.DoubleSide, transparent if opacity<1, depthWrite: false for
+  overlapping VMobject fills).
+
+ManimColor → three.Color bridge: use \`ManimColor.toHex()\` or RGB array.
+
+Install \`three\` examples (they ship with the package; import from
+\`three/examples/jsm/lines/LineMaterial.js\` and \`.../Line2.js\`).
+
+## Rules
+- Export from \`src/renderer/three/index.ts\`.
+- Do NOT modify files outside \`src/renderer/three/\`.
+- Import ManimColor from \`src/utils/color/manim_colors.js\`.`,
+  },
+
+  {
+    id: "threejs.core.geometry",
+    description: "Bezier → LineGeometry + Shape fill triangulation",
+    targetFile: "src/renderer/three/three_geometry.ts",
+    dependsOn: ["threejs.core.renderer"],
+    estimatedLines: 350,
+    prompt: `# three.js Task: Geometry Builders
+
+Create \`src/renderer/three/three_geometry.ts\` with converters from manim-ts
+VMobject point data to three.js BufferGeometries.
+
+## Functions
+- \`vmobjectToLineGeometry(points: Points3D, sampling: number = 20)\` —
+  Samples each cubic bezier segment into \`sampling\` polyline points and
+  returns a \`LineGeometry\` (from three/examples/jsm/lines/LineGeometry.js)
+  ready for \`Line2\`.
+- \`vmobjectToFillGeometry(points: Points3D)\` — Builds the fill polygon
+  from the subpath outline(s), triangulates with \`earcut\` (already in
+  dependencies), and returns a \`THREE.BufferGeometry\` with indexed
+  triangles.
+- Handle subpath splits on \`null\`-style markers the same way VMobject
+  already does (reuse existing helpers in \`src/mobject/types/vectorized_mobject.ts\`).
+
+## Point layout
+VMobject uses Manim's 3k+1 bezier layout (anchor, handle, handle, anchor, …).
+Read \`src/mobject/types/vectorized_mobject.ts\` to confirm the exact stride
+and subpath split convention before writing.
+
+## Rules
+- Use numpy-ts only for math (no custom vector classes).
+- Export from \`src/renderer/three/index.ts\`.
+- Do NOT modify files outside \`src/renderer/three/\`.`,
+  },
+
+  {
+    id: "threejs.core.camera",
+    description: "Adapter from manim Camera → three.js camera",
+    targetFile: "src/renderer/three/three_camera.ts",
+    dependsOn: ["threejs.core.renderer"],
+    estimatedLines: 200,
+    prompt: `# three.js Task: Camera Adapter
+
+Manim uses frame_width / frame_height (default 14.2 × 8.0) with origin at
+center. three.js cameras use fov/aspect or left/right/top/bottom.
+
+Create \`src/renderer/three/three_camera.ts\` exporting:
+- \`makeOrthoCamera(frameWidth, frameHeight)\` → \`THREE.OrthographicCamera\`
+  positioned at z = 10, looking at origin, with bounds set so Manim scene
+  coords map 1:1 to world coords (i.e. x ∈ [-fw/2, +fw/2]).
+- \`makePerspectiveCamera(frameWidth, frameHeight, fovDeg = 50)\` —
+  distance computed so that a \`frameHeight\`-tall object at z=0 fills the
+  view exactly, matching Python Manim's ThreeDCamera phi/theta conventions.
+- \`applyPhiTheta(camera, phi, theta, focalDistance)\` — Manim's spherical
+  camera rotation (phi = polar, theta = azimuth).
+
+Reference: \`src/camera/camera.py\` (Python Manim) for frame defaults.
+
+## Rules
+- Only modify files in \`src/renderer/three/\`.
+- Export from barrel.`,
+  },
+
+  // ── Phase 2: Mobject adapters ──────────────────────────────
+  {
+    id: "threejs.mobject.vmobject_adapter",
+    description: "VMobject → three.js Object3D (Line2 stroke + Mesh fill)",
+    targetFile: "src/renderer/three/adapters/vmobject_adapter.ts",
+    dependsOn: ["threejs.core.materials", "threejs.core.geometry"],
+    estimatedLines: 280,
+    prompt: `# three.js Task: VMobject Adapter
+
+Create \`src/renderer/three/adapters/vmobject_adapter.ts\` exporting a
+\`VMobjectAdapter\` class that maintains one \`THREE.Group\` per VMobject,
+containing a \`Line2\` for stroke and a \`THREE.Mesh\` for fill.
+
+## Interface
+\`\`\`ts
+class VMobjectAdapter {
+  readonly group: THREE.Group;
+  constructor(vm: VMobject);
+  update(): void;   // re-read points + style, update geometry & materials
+  dispose(): void;  // dispose geometries and materials
+}
+\`\`\`
+
+## \`update()\` behavior
+- Rebuild LineGeometry from \`vm.points\` via \`vmobjectToLineGeometry\`.
+- Rebuild fill BufferGeometry via \`vmobjectToFillGeometry\` if fillOpacity > 0.
+- Update material color/opacity/strokeWidth in place (don't recreate unless
+  a property not settable on existing material changes).
+- Skip fill if \`vm.fillOpacity === 0\`; skip stroke if strokeWidth === 0.
+
+## Rules
+- Do NOT modify VMobject itself.
+- Only modify files under \`src/renderer/three/adapters/\`.`,
+  },
+
+  {
+    id: "threejs.mobject.mobject_adapter",
+    description: "Generic Mobject → three.js (dispatch, image, 3D mesh)",
+    targetFile: "src/renderer/three/adapters/mobject_adapter.ts",
+    dependsOn: ["threejs.mobject.vmobject_adapter"],
+    estimatedLines: 220,
+    prompt: `# three.js Task: Mobject Dispatch Adapter
+
+Create \`src/renderer/three/adapters/mobject_adapter.ts\` exporting
+\`mobjectToThree(mob)\` that dispatches on mobject type:
+
+- \`VMobject\`   → \`VMobjectAdapter\`
+- \`ImageMobject\` → \`THREE.Mesh\` with \`MeshBasicMaterial({ map: tex })\`
+- \`Surface\` / \`Polyhedron\` (3D) → \`THREE.Mesh\` with indexed
+  BufferGeometry + \`MeshStandardMaterial\` (needs lighting — will wire in
+  a later task).
+- \`VGroup\` / Group → recursively adapt children, attach to a parent Group.
+
+Use a single registry pattern (Map<class, adapterFactory>) so future
+mobjects can register themselves.
+
+## Rules
+- Only modify files under \`src/renderer/three/adapters/\`.
+- Read VMobject / Surface / ImageMobject to confirm field names.`,
+  },
+
+  {
+    id: "threejs.mobject.family_syncer",
+    description: "Per-frame diff between scene.mobjects and three scene graph",
+    targetFile: "src/renderer/three/family_syncer.ts",
+    dependsOn: ["threejs.mobject.mobject_adapter"],
+    estimatedLines: 200,
+    prompt: `# three.js Task: Family Syncer
+
+Create \`src/renderer/three/family_syncer.ts\` exporting a \`FamilySyncer\`
+that diffs the scene's mobject family against the mounted three.js group
+each frame:
+
+- Adds adapters for newly-added mobjects.
+- Removes+disposes adapters for removed mobjects.
+- Calls \`adapter.update()\` on every mobject flagged dirty (for now, all).
+
+Maintain a \`Map<Mobject, Adapter>\` keyed by identity.
+
+## Rules
+- No custom diff DSL — a simple set-diff is fine.
+- Only modify files under \`src/renderer/three/\`.`,
+  },
+
+  // ── Phase 3: Scene integration ─────────────────────────────
+  {
+    id: "threejs.scene.impl",
+    description: "ThreeScene: mount renderer to canvas, run render loop",
+    targetFile: "src/scene/three_scene.ts",
+    dependsOn: ["threejs.mobject.family_syncer", "threejs.core.camera"],
+    estimatedLines: 250,
+    prompt: `# three.js Task: ThreeScene
+
+Create \`src/scene/three_scene.ts\` exporting \`ThreeScene\` — a Scene
+subclass whose render backend is three.js (not Canvas2D).
+
+## Responsibilities
+- Accept an \`HTMLCanvasElement\` in the constructor.
+- Wire \`ThreeRenderer\` + \`FamilySyncer\` + Manim camera adapter.
+- \`play(anim)\` / \`wait(t)\` drive a requestAnimationFrame loop that calls
+  \`syncer.sync()\` then \`renderer.render()\`.
+- Keep the existing Scene API (add/remove/clearAll/play/wait) behaviorally
+  identical to \`src/scene/scene.ts\`.
+
+Read \`src/scene/scene.ts\` first — match its public surface.
+
+## Rules
+- Do NOT modify \`scene.ts\`. Subclass it.
+- Export from \`src/scene/index.ts\`.`,
+  },
+
+  {
+    id: "threejs.scene.resize",
+    description: "Canvas resize handler (DPR-aware)",
+    targetFile: "src/renderer/three/resize_handler.ts",
+    dependsOn: ["threejs.core.renderer"],
+    estimatedLines: 100,
+    prompt: `# three.js Task: Resize Handler
+
+Create \`src/renderer/three/resize_handler.ts\` exporting
+\`attachResize(renderer, camera, canvas)\` that observes canvas size
+(ResizeObserver) and updates renderer size + camera projection
+(devicePixelRatio-aware, capped at 2 to avoid Retina thrash).
+
+## Rules
+- Only modify files under \`src/renderer/three/\`.
+- Return an unsubscribe function.`,
+  },
+
+  // ── Phase 4: Text & Math backend ───────────────────────────
+  {
+    id: "threejs.text.mathjax",
+    description: "MathJax LaTeX → SVG string renderer",
+    targetFile: "src/mobject/text/mathjax_renderer.ts",
+    dependsOn: [],
+    estimatedLines: 180,
+    prompt: `# three.js Task: MathJax Renderer
+
+Install \`mathjax-full\` via npm. Create
+\`src/mobject/text/mathjax_renderer.ts\` exporting \`texToSvg(tex: string,
+opts?: { display?: boolean })\` that returns an SVG string with paths.
+
+Use MathJax's CommonHTML or SVG output in headless mode (no DOM needed).
+Reference: mathjax-full README (ts/mathjax3 path-only SVG adaptor).
+
+Output must be a plain SVG string with \`<path d="…"/>\` elements — no
+\`<use>\` references (resolve all glyphs inline).
+
+## Rules
+- Keep MathJax startup lazy (initialize on first call, reuse for subsequent).
+- Export from \`src/mobject/text/index.ts\` (create barrel if missing).`,
+  },
+
+  {
+    id: "threejs.text.svg_parser",
+    description: "SVG path d-attr → cubic bezier Points3D",
+    targetFile: "src/mobject/text/svg_path_to_bezier.ts",
+    dependsOn: [],
+    estimatedLines: 250,
+    prompt: `# three.js Task: SVG path → bezier points
+
+Create \`src/mobject/text/svg_path_to_bezier.ts\` exporting
+\`svgPathToPoints(d: string): Points3D\` that parses an SVG \`d\` string via
+\`svg-path-commander\` (already installed), converts every segment to a
+cubic bezier, and returns a VMobject-ready Points3D in Manim's 3k+1 layout
+(anchor, handle, handle, anchor, …). Subpath boundaries use the same
+marker convention as existing VMobject code — read
+\`src/mobject/types/vectorized_mobject.ts\` and match exactly.
+
+Quadratics should be converted to cubics via the standard formula.
+Lines become straight cubic beziers (handles at 1/3 and 2/3 along).
+Arcs should be converted to cubic beziers (svg-path-commander has a
+\`normalizePath\` helper).
+
+## Rules
+- Return numpy-ts NDArray shape \`[n, 3]\`.
+- Only modify files under \`src/mobject/text/\`.`,
+  },
+
+  {
+    id: "threejs.text.mathtex_browser",
+    description: "MathTex browser-side: tex → VMobject via MathJax + SVG parser",
+    targetFile: "src/mobject/text/mathtex_browser.ts",
+    dependsOn: ["threejs.text.mathjax", "threejs.text.svg_parser"],
+    estimatedLines: 220,
+    prompt: `# three.js Task: MathTex Browser Backend
+
+Create \`src/mobject/text/mathtex_browser.ts\` exporting a browser-capable
+\`MathTex\` implementation:
+
+1. Call \`texToSvg(tex)\` (from mathjax_renderer).
+2. Parse the SVG with cheerio (already installed); iterate top-level
+   \`<path>\` elements.
+3. Each \`<path d="…">\` becomes one VMobject submobject (child) via
+   \`svgPathToPoints\`. The collection is wrapped in a VGroup.
+4. Apply the SVG root transform (scale/translate from viewBox) so the
+   resulting group sits at Manim scene coords with reasonable default size.
+
+Match the existing \`MathTex\` API (\`src/mobject/text/mathtex.ts\` if it
+exists, or look for stubs) so the demo can swap over by changing imports.
+
+## Rules
+- Only modify files under \`src/mobject/text/\`.
+- Use VGroup from \`src/mobject/types/vectorized_mobject.ts\`.`,
+  },
+
+  {
+    id: "threejs.text.glyph",
+    description: "opentype.js → GlyphVMobject for plain text",
+    targetFile: "src/mobject/text/glyph_vmobject.ts",
+    dependsOn: ["threejs.text.svg_parser"],
+    estimatedLines: 250,
+    prompt: `# three.js Task: GlyphVMobject
+
+Install \`opentype.js\`. Create \`src/mobject/text/glyph_vmobject.ts\`
+exporting \`Text(content, opts)\` that:
+
+1. Loads a TTF/OTF font once (default: a bundled free font; let the caller
+   override via \`opts.font\`).
+2. For each character, extracts the glyph's SVG \`d\` string via
+   \`opentype.Glyph.getPath(...).toPathData(3)\`.
+3. Passes each \`d\` through \`svgPathToPoints\` to get a VMobject.
+4. Lays glyphs out left-to-right using opentype's advance widths.
+5. Returns a VGroup of per-character VMobjects.
+
+This is the 1:1 analogue of Python Manim's Pango path, scaled for browser.
+
+## Rules
+- Keep the font load lazy + cached.
+- Only modify files under \`src/mobject/text/\`.`,
+  },
+
+  // ── Phase 5: 3D mobjects ───────────────────────────────────
+  {
+    id: "threejs.three_d.surface",
+    description: "Surface → three.js Mesh with proper normals",
+    targetFile: "src/renderer/three/adapters/surface_adapter.ts",
+    dependsOn: ["threejs.mobject.mobject_adapter"],
+    estimatedLines: 240,
+    prompt: `# three.js Task: Surface Adapter
+
+Create \`src/renderer/three/adapters/surface_adapter.ts\` adapting
+manim-ts \`Surface\` / \`ParametricSurface\` to a three.js
+\`THREE.Mesh\` with:
+- Indexed BufferGeometry built from the surface's uv-grid samples.
+- Per-vertex normals computed via \`geometry.computeVertexNormals()\`.
+- \`MeshStandardMaterial\` with Manim's checkerboard_colors applied as
+  per-face colors where possible (use vertex-color attribute or split
+  geometry into two sub-meshes).
+
+Read \`src/mobject/three_d/three_dimensions.ts\` for Surface's resolution
+and color-pattern conventions.
+
+## Rules
+- Only modify files under \`src/renderer/three/adapters/\`.`,
+  },
+
+  {
+    id: "threejs.three_d.polyhedra",
+    description: "Polyhedron → three.js Mesh",
+    targetFile: "src/renderer/three/adapters/polyhedron_adapter.ts",
+    dependsOn: ["threejs.mobject.mobject_adapter"],
+    estimatedLines: 180,
+    prompt: `# three.js Task: Polyhedron Adapter
+
+Create \`src/renderer/three/adapters/polyhedron_adapter.ts\` converting
+manim-ts Polyhedron instances (Tetrahedron, Octahedron, Icosahedron,
+Dodecahedron) to \`THREE.Mesh\`. Each face becomes indexed triangles;
+normals computed from face orientation.
+
+Optionally keep the edge wireframe as a \`LineSegments\` child.
+
+## Rules
+- Only modify files under \`src/renderer/three/adapters/\`.
+- Read \`src/mobject/three_d/polyhedra/\` for the face/vertex schema.`,
+  },
+
+  {
+    id: "threejs.three_d.lighting",
+    description: "Default 3-point lighting rig for 3D scenes",
+    targetFile: "src/renderer/three/lighting.ts",
+    dependsOn: ["threejs.core.renderer"],
+    estimatedLines: 90,
+    prompt: `# three.js Task: Default Lighting
+
+Create \`src/renderer/three/lighting.ts\` exporting
+\`defaultLightingRig(scene)\` that adds:
+- \`AmbientLight\` (0.4 intensity)
+- key \`DirectionalLight\` at (5, 5, 10)
+- fill \`DirectionalLight\` at (-5, 2, 5) (lower intensity)
+
+Called automatically by ThreeScene when any 3D mobject is first added.
+
+## Rules
+- Only modify files under \`src/renderer/three/\`.`,
+  },
+
+  // ── Phase 6: Demo migration ────────────────────────────────
+  {
+    id: "threejs.demo.real_demo",
+    description: "Port demo/real-demo.ts from Canvas2D to ThreeScene",
+    targetFile: "demo/real-demo.ts",
+    dependsOn: [
+      "threejs.scene.impl",
+      "threejs.text.mathtex_browser",
+      "threejs.three_d.surface",
+      "threejs.three_d.polyhedra",
+    ],
+    estimatedLines: 600,
+    prompt: `# three.js Task: Migrate Demo
+
+Rewrite \`demo/real-demo.ts\` to use \`ThreeScene\` (the new three.js
+backend) instead of the Canvas2D \`Scene\`. The HTML overlay for text
+stays as-is for now; additionally wire \`MathTex\` (browser) where buttons
+already generate TeX via KaTeX — the KaTeX overlay can remain as a
+fallback, but NEW demos should use MathTex + VGroup paths.
+
+Preserve:
+- All button handlers and tab structure.
+- The \`sceneToPercent\` helper (DOM overlay coords).
+- The 24 text demos — they keep working as overlays.
+
+Change:
+- Scene construction: \`new ThreeScene(canvas)\` instead of the current
+  Canvas2D scene.
+- Remove \`scene.redraw()\` calls if the new scene auto-rerenders.
+
+Read \`demo/real-demo.ts\` first — it is large; preserve every tab.
+
+## Rules
+- Do NOT delete existing demos.
+- Verify \`npm run demo\` starts without runtime errors (you can't run it,
+  but \`npm run typecheck\` must pass).`,
+  },
+
+  {
+    id: "threejs.demo.index_html",
+    description: "Update demo/index.html canvas attrs + MathTex tab",
+    targetFile: "demo/index.html",
+    dependsOn: ["threejs.demo.real_demo"],
+    estimatedLines: 80,
+    prompt: `# three.js Task: Demo HTML Touch-up
+
+Minor updates to \`demo/index.html\`:
+- Add a \`#canvas-root\` parent so ThreeScene can attach (if it doesn't
+  already use \`#manim-canvas\` directly — check the impl).
+- Add an optional new tab "MathTex (native)" with 4–5 buttons that use the
+  engine's new MathTex path instead of KaTeX overlay.
+
+Do NOT remove any existing tabs or buttons. This is additive.
+
+## Rules
+- Only modify \`demo/index.html\`.`,
+  },
+
+  // ── Phase 7: Cleanup ───────────────────────────────────────
+  {
+    id: "threejs.cleanup.retire_canvas2d",
+    description: "Mark Canvas2D renderer paths as deprecated (not deleted)",
+    targetFile: "src/renderer/cairo_renderer.ts",
+    dependsOn: ["threejs.demo.real_demo"],
+    estimatedLines: 60,
+    prompt: `# three.js Task: Deprecate Canvas2D Renderer
+
+Find the Canvas2D / Cairo renderer modules in \`src/renderer/\` and add
+\`@deprecated\` JSDoc tags pointing to \`ThreeRenderer\` as the replacement.
+Do NOT delete any code yet — the server-side @napi-rs/canvas path may still
+be used for video export.
+
+Find any \`scene.redraw\`-style manual render calls that are now unnecessary
+(ThreeScene auto-rerenders) and deprecate them similarly.
+
+## Rules
+- Only add JSDoc. Do not change runtime behavior.
+- List every file touched in the commit message section of your output.`,
+  },
+
+  {
+    id: "threejs.cleanup.smoke_tests",
+    description: "Vitest smoke tests for three.js renderer construction",
+    targetFile: "tests/renderer/three_smoke.test.ts",
+    dependsOn: ["threejs.scene.impl"],
+    estimatedLines: 180,
+    prompt: `# three.js Task: Smoke Tests
+
+Create \`tests/renderer/three_smoke.test.ts\` with vitest tests that:
+- Construct a \`ThreeRenderer\` with a fake canvas (use \`node-canvas\` or
+  jsdom + \`HTMLCanvasElement\` mock — whichever works headlessly).
+- Add a \`Circle\`, assert \`scene.children.length === 1\` after sync.
+- Add then remove a VMobject; assert disposal happened (geometries/materials
+  are disposed — track via spy).
+
+If WebGL isn't available in the test env, use \`gl\` (headless-gl) or skip
+via \`test.skipIf(!hasWebGL)\`.
+
+## Rules
+- Only create files under \`tests/renderer/\`.
+- Tests must pass via \`npm test\`.`,
+  },
+
+  // ── Phase 8: Documentation ─────────────────────────────────
+  {
+    id: "threejs.docs.migration_guide",
+    description: "Write THREE_MIGRATION.md guide",
+    targetFile: "THREE_MIGRATION.md",
+    dependsOn: ["threejs.demo.real_demo"],
+    estimatedLines: 200,
+    prompt: `# three.js Task: Migration Guide
+
+Create \`THREE_MIGRATION.md\` at repo root covering:
+- Why three.js (browser parity with Python Manim Community's OpenGL renderer).
+- What changed (renderer, text/math backend); what didn't (mobjects, animations, math).
+- How to port a script (one before/after example).
+- Known differences vs Python Manim (e.g. GPU stroke widths).
+- List of new dependencies: three, mathjax-full, opentype.js.
+
+## Rules
+- Keep under 300 lines.
+- No emojis.`,
+  },
+
+  {
+    id: "threejs.docs.changes",
+    description: "Append three.js migration section to CHANGES.md",
+    targetFile: "CHANGES.md",
+    dependsOn: ["threejs.docs.migration_guide"],
+    estimatedLines: 80,
+    prompt: `# three.js Task: CHANGES.md Entry
+
+Append to \`CHANGES.md\` a new section documenting the three.js migration:
+date 2026-04-13, list of new modules created under \`src/renderer/three/\`
+and \`src/mobject/text/\`, new deps, and a one-line migration summary.
+
+Read CHANGES.md first to preserve existing content.
+
+## Rules
+- Preserve all existing CHANGES.md content.
+- No emojis.`,
+  },
+];
+
+// ─── Renderer-Mode Refactor Tasks ───────────────────────────
+//
+// Adds a `renderer: "cairo" | "opengl"` option mirroring ManimCE. Default
+// "cairo" routes through Canvas2D (browser-safe); opt-in "opengl" uses the
+// existing three.js backend. 3D mobjects in cairo mode get flattened via
+// ThreeDCamera projection (exactly like ManimCE).
+
+const RENDERER_MODE_TASKS: GapTask[] = [
+  {
+    id: "rendererMode.config",
+    description: "Add `renderer` field to ManimConfig + SceneOptions",
+    targetFile: "src/core/types.ts",
+    dependsOn: [],
+    estimatedLines: 40,
+    prompt: `# Renderer Mode Task: Config field
+
+Add a \`renderer: "cairo" | "opengl"\` option to:
+1. \`src/core/types.ts\` \`ManimConfig\` (optional, default "cairo")
+2. \`src/scene/scene/scene.ts\` \`SceneOptions\` (optional, default "cairo")
+
+This mirrors Python ManimCE's \`config.renderer\` which switches between
+Cairo (default) and OpenGL. The default MUST be "cairo" to match ManimCE.
+
+## Rules
+- Do NOT wire it into any backend yet — just add the type + field + default.
+- Add JSDoc citing ManimCE's config.renderer.
+- No behavior change: existing code paths must still work.
+- Run \`npm run typecheck\`.`,
+  },
+
+  {
+    id: "rendererMode.backendInterface",
+    description: "Define SceneBackend interface",
+    targetFile: "src/renderer/scene_backend.ts",
+    dependsOn: ["rendererMode.config"],
+    estimatedLines: 120,
+    prompt: `# Renderer Mode Task: SceneBackend interface
+
+Create \`src/renderer/scene_backend.ts\` exporting:
+
+\`\`\`ts
+export interface SceneBackend {
+  /** Attach a mobject to the backend (adds geometry adapter / canvas layer). */
+  addMobject(m: IMobject): void;
+  /** Detach a mobject (dispose adapter / clear layer). */
+  removeMobject(m: IMobject): void;
+  /** Sync all tracked mobjects (style + geometry) for the current frame. */
+  sync(): void;
+  /** Draw one frame to the output surface. */
+  render(): void;
+  /** Resize the output surface to (width, height) in CSS pixels. */
+  resize(width: number, height: number): void;
+  /** Release GPU / canvas resources. */
+  dispose(): void;
+}
+\`\`\`
+
+Export from \`src/renderer/index.ts\`.
+
+## Rules
+- Pure type module — no runtime code.
+- Do NOT modify any backend yet.
+- \`npm run typecheck\`.`,
+  },
+
+  {
+    id: "rendererMode.threeBackend",
+    description: "Extract three.js logic into ThreeBackend implementing SceneBackend",
+    targetFile: "src/renderer/three/three_backend.ts",
+    dependsOn: ["rendererMode.backendInterface"],
+    estimatedLines: 250,
+    prompt: `# Renderer Mode Task: ThreeBackend
+
+Create \`src/renderer/three/three_backend.ts\` exporting a \`ThreeBackend\`
+class that implements \`SceneBackend\`. Move the three.js-specific logic
+currently inside \`src/scene/three_scene.ts\` (ThreeRenderer + FamilySyncer
+ownership + render/resize/dispose) into this class.
+
+Constructor:
+\`\`\`ts
+new ThreeBackend({ canvas, frameWidth, frameHeight, perspective, camera3, config })
+\`\`\`
+
+\`ThreeScene\` (existing) should continue to work — refactor it to delegate
+to a \`ThreeBackend\` internally instead of owning ThreeRenderer directly.
+All existing public ThreeScene methods must still work (readers: check
+demo/real-demo.ts callers before removing anything).
+
+## Rules
+- No behavior change from user-facing perspective.
+- \`npm run typecheck\`.`,
+  },
+
+  {
+    id: "rendererMode.cairoBackend",
+    description: "Build CairoBackend (browser Canvas2D) implementing SceneBackend",
+    targetFile: "src/renderer/cairo/cairo_backend.ts",
+    dependsOn: ["rendererMode.backendInterface"],
+    estimatedLines: 400,
+    prompt: `# Renderer Mode Task: CairoBackend (browser Canvas2D)
+
+Create \`src/renderer/cairo/cairo_backend.ts\` exporting a \`CairoBackend\`
+class that implements \`SceneBackend\` for browser Canvas2D.
+
+Notes:
+- The existing \`src/renderer/cairo_renderer/cairo_renderer.ts\` uses
+  \`canvas\` (node-canvas, libcairo) server-side. This new backend is for
+  the BROWSER and must use the W3C CanvasRenderingContext2D API directly
+  (which the W3C API and node-canvas both implement compatibly). You may
+  share drawing helpers, but DO NOT import \`canvas\` here.
+- Render each VMobject's stroke/fill by iterating its cubic bezier tuples
+  (\`getCubicBezierTuples\`) and calling \`ctx.bezierCurveTo\`, then
+  \`ctx.fill\` / \`ctx.stroke\` with the VMobject's fill/stroke style.
+- For 3D mobjects: project points through \`ThreeDCamera\` (from
+  \`src/camera/three_d_camera/\`) to 2D before drawing. ManimCE does
+  exactly this — 3D under Cairo becomes flattened polygons.
+- Respect \`zIndex\`, \`submobjects\`, fill before stroke ordering.
+- Use devicePixelRatio scaling for crisp rendering.
+
+Constructor:
+\`\`\`ts
+new CairoBackend({ canvas, frameWidth, frameHeight, config })
+\`\`\`
+
+## Rules
+- Browser-only. No Node-only imports.
+- \`npm run typecheck\`.
+- Keep it under 500 lines.`,
+  },
+
+  {
+    id: "rendererMode.sceneSwitch",
+    description: "Scene constructor branches on renderer option",
+    targetFile: "src/scene/scene/scene.ts",
+    dependsOn: [
+      "rendererMode.threeBackend",
+      "rendererMode.cairoBackend",
+    ],
+    estimatedLines: 120,
+    prompt: `# Renderer Mode Task: Scene switch
+
+Update \`src/scene/scene/scene.ts\` so that when \`SceneOptions.canvas\` is
+provided, the Scene constructor instantiates the correct \`SceneBackend\`
+based on \`options.renderer\`:
+- "cairo" (default) → \`CairoBackend\`
+- "opengl" → \`ThreeBackend\`
+
+Store the backend on the Scene and route \`render()\` through it.
+Headless (no canvas) mode should continue to work exactly as before — do
+not break the video-export pathway.
+
+\`ThreeScene\` must continue to work as a shortcut that forces
+\`renderer: "opengl"\` with perspective/3D defaults. Don't break it.
+
+## Rules
+- Default \`renderer\` MUST be "cairo", matching ManimCE.
+- All existing demos in demo/ must keep working.
+- \`npm run typecheck\`.`,
+  },
+
+  {
+    id: "rendererMode.exports",
+    description: "Wire public exports for new backend modules",
+    targetFile: "src/renderer/index.ts",
+    dependsOn: ["rendererMode.sceneSwitch"],
+    estimatedLines: 30,
+    prompt: `# Renderer Mode Task: Public exports
+
+Ensure the following are exported from their package barrels:
+- \`SceneBackend\` from \`src/renderer/index.ts\`
+- \`ThreeBackend\` from \`src/renderer/three/index.ts\`
+- \`CairoBackend\` from \`src/renderer/cairo/index.ts\` (create this barrel)
+
+Do NOT remove existing exports. Run \`npm run typecheck\`.`,
+  },
+
+  {
+    id: "rendererMode.smokeTests",
+    description: "Smoke tests for both renderer modes",
+    targetFile: "tests/renderer/renderer_mode.test.ts",
+    dependsOn: ["rendererMode.exports"],
+    estimatedLines: 150,
+    prompt: `# Renderer Mode Task: Smoke tests
+
+Create \`tests/renderer/renderer_mode.test.ts\` with vitest cases:
+1. Default Scene with a canvas uses CairoBackend.
+2. Scene with \`renderer: "opengl"\` uses ThreeBackend.
+3. Adding a VMobject results in at least one path/mesh being drawn (assert
+   via canvas pixel sampling for cairo, scene-graph child count for three).
+4. Resize propagates to the backend.
+5. Dispose releases resources (no throws).
+
+Use \`happy-dom\` or \`jsdom\` for the canvas stub if not already configured.
+If canvas pixel inspection is too fragile, fall back to asserting the
+backend instance type + that \`render()\` doesn't throw.
+
+## Rules
+- Tests must pass: \`npm run test\`.
+- Don't flake on CI — prefer type/structure assertions over pixel diffs.`,
+  },
+
+  {
+    id: "rendererMode.docs",
+    description: "Document renderer modes in CLAUDE.md + CHANGES.md",
+    targetFile: "CLAUDE.md",
+    dependsOn: ["rendererMode.smokeTests"],
+    estimatedLines: 80,
+    prompt: `# Renderer Mode Task: Docs
+
+1. Append a "Renderer Modes" section to \`CLAUDE.md\` explaining:
+   - Default is "cairo" (Canvas2D), mirroring ManimCE.
+   - Opt in via \`new Scene({ canvas, renderer: "opengl" })\` for three.js.
+   - 3D mobjects under cairo get flattened via ThreeDCamera projection.
+   - Cite ManimCE \`config.renderer\` as the reference.
+2. Append a dated entry to \`CHANGES.md\` (today's date: 2026-04-14)
+   summarizing: new SceneBackend interface, ThreeBackend, CairoBackend,
+   and the default-cairo switch.
+
+## Rules
+- Preserve all existing content in both files.
+- No emojis.`,
+  },
+];
+
+/** Run the renderer-mode refactor tasks. */
+async function runRendererModeTasks(allResults: AgentResult[]): Promise<void> {
+  let tasks = RENDERER_MODE_TASKS;
+  if (ONLY_MODULE) {
+    tasks = tasks.filter((g) => g.id === ONLY_MODULE);
+  }
+
+  const completedModules = loadCompletedModules();
+  const pending = tasks.filter((g) => !completedModules.has(g.id));
+
+  if (pending.length === 0) {
+    log("info", "All renderer-mode tasks already completed");
+    return;
+  }
+
+  log("info", `Running ${pending.length} renderer-mode tasks`);
+
+  const done = new Set<string>(completedModules);
+  const active = new Map<string, Promise<AgentResult>>();
+  const inProgress = new Set<string>();
+
+  function getReady(): GapTask[] {
+    const ready: GapTask[] = [];
+    for (const g of pending) {
+      if (done.has(g.id) || inProgress.has(g.id)) continue;
+      const depsReady = g.dependsOn.every((d) => done.has(d));
+      if (depsReady) ready.push(g);
+    }
+    return ready;
+  }
+
+  let remaining = pending.length;
+  while (remaining > 0 || active.size > 0) {
+    const ready = getReady();
+    while (active.size < MAX_PARALLEL && ready.length > 0) {
+      const gap = ready.shift()!;
+      const taskNode = gapToTaskNode(gap);
+      inProgress.add(gap.id);
+
+      const prompt = buildGapPrompt(gap);
+      const p = runAgentWithPrompt(taskNode, prompt).then((result) => {
+        active.delete(gap.id);
+        inProgress.delete(gap.id);
+        allResults.push(result);
+
+        if (result.success) {
+          done.add(gap.id);
+          remaining--;
+          log("success", `renderer-mode task ${gap.id}: ${gap.description}`);
+        } else {
+          done.add(gap.id);
+          remaining--;
+          log("warn", `renderer-mode task ${gap.id} failed — dependents will still attempt`);
+        }
+        return result;
+      });
+      active.set(gap.id, p);
+    }
+
+    if (active.size > 0) {
+      await Promise.race(active.values());
+    } else if (remaining > 0) {
+      const stuck = pending.filter((g) => !done.has(g.id)).map((g) => g.id);
+      log("error", `Deadlock in renderer-mode tasks: ${stuck.join(", ")}`);
+      break;
+    }
+  }
+}
+
+/** Run the three.js migration tasks through the same agent infrastructure. */
+async function runThreeJsTasks(allResults: AgentResult[]): Promise<void> {
+  let tasks = THREE_JS_TASKS;
+  if (ONLY_MODULE) {
+    tasks = tasks.filter((g) => g.id === ONLY_MODULE);
+  }
+
+  const completedModules = loadCompletedModules();
+  const pending = tasks.filter((g) => !completedModules.has(g.id));
+
+  if (pending.length === 0) {
+    log("info", "All three.js migration tasks already completed");
+    return;
+  }
+
+  log("info", `Running ${pending.length} three.js migration tasks`);
+
+  const done = new Set<string>(completedModules);
+  const active = new Map<string, Promise<AgentResult>>();
+  const inProgress = new Set<string>();
+
+  function getReady(): GapTask[] {
+    const ready: GapTask[] = [];
+    for (const g of pending) {
+      if (done.has(g.id) || inProgress.has(g.id)) continue;
+      const depsReady = g.dependsOn.every((d) => done.has(d));
+      if (depsReady) ready.push(g);
+    }
+    return ready;
+  }
+
+  let remaining = pending.length;
+  while (remaining > 0 || active.size > 0) {
+    const ready = getReady();
+    while (active.size < MAX_PARALLEL && ready.length > 0) {
+      const gap = ready.shift()!;
+      const taskNode = gapToTaskNode(gap);
+      inProgress.add(gap.id);
+
+      const prompt = buildGapPrompt(gap);
+      const p = runAgentWithPrompt(taskNode, prompt).then((result) => {
+        active.delete(gap.id);
+        inProgress.delete(gap.id);
+        allResults.push(result);
+
+        if (result.success) {
+          done.add(gap.id);
+          remaining--;
+          log("success", `three.js task ${gap.id}: ${gap.description}`);
+        } else {
+          done.add(gap.id); // don't block dependents
+          remaining--;
+          log("warn", `three.js task ${gap.id} failed — dependents will still attempt`);
+        }
+        return result;
+      });
+      active.set(gap.id, p);
+    }
+
+    if (active.size > 0) {
+      await Promise.race(active.values());
+    } else if (remaining > 0) {
+      const stuck = pending.filter((g) => !done.has(g.id)).map((g) => g.id);
+      log("error", `Deadlock in three.js tasks: ${stuck.join(", ")}`);
+      break;
+    }
+  }
+}
+
 // ─── Main ────────────────────────────────────────────────────
 
 async function main() {
@@ -1144,8 +2088,65 @@ ${COLORS.bold}╔═════════════════════
     }
   }
 
-  // ─── Gap-filling mode ──────────────────────────────────────
-  if (RUN_GAPS) {
+  // ─── Renderer-mode refactor ───────────────────────────────
+  if (RUN_RENDERER_MODE) {
+    console.log(
+      `\n${COLORS.bold}═══ Renderer Mode Refactor: ${RENDERER_MODE_TASKS.length} tasks ═══${COLORS.reset}\n`
+    );
+    for (const g of RENDERER_MODE_TASKS) {
+      const status = completedModules.has(g.id) ? `${COLORS.success}done${COLORS.reset}` : "pending";
+      log("info", `  ${g.id} — ${g.description} [${status}]`);
+    }
+    console.log();
+
+    await runRendererModeTasks(allResults);
+
+    if (!DRY_RUN) {
+      writeFileSync(RESULTS_FILE, JSON.stringify(allResults, null, 2));
+    }
+
+    if (!SKIP_TYPECHECK && !DRY_RUN) {
+      log("info", "Running type check after renderer-mode tasks...");
+      const { pass, errors } = await runTypeCheck();
+      if (pass) {
+        log("success", "Type check passed");
+      } else {
+        log("error", "Type check failed. Errors saved to typecheck-errors.log");
+        writeFileSync(join(ROOT, "typecheck-errors.log"), errors);
+      }
+    }
+    return;
+  }
+
+  // ─── three.js migration mode ──────────────────────────────
+  if (RUN_THREE_JS) {
+    console.log(
+      `\n${COLORS.bold}═══ three.js Migration Mode: ${THREE_JS_TASKS.length} tasks ═══${COLORS.reset}\n`
+    );
+    for (const g of THREE_JS_TASKS) {
+      const status = completedModules.has(g.id) ? `${COLORS.success}done${COLORS.reset}` : "pending";
+      log("info", `  ${g.id} — ${g.description} [${status}]`);
+    }
+    console.log();
+
+    await runThreeJsTasks(allResults);
+
+    if (!DRY_RUN) {
+      writeFileSync(RESULTS_FILE, JSON.stringify(allResults, null, 2));
+    }
+
+    if (!SKIP_TYPECHECK && !DRY_RUN) {
+      log("info", "Running type check after three.js migration tasks...");
+      const { pass, errors } = await runTypeCheck();
+      if (pass) {
+        log("success", "Type check passed");
+      } else {
+        log("error", "Type check failed. Errors saved to typecheck-errors.log");
+        writeFileSync(join(ROOT, "typecheck-errors.log"), errors);
+      }
+    }
+
+  } else if (RUN_GAPS) {
     console.log(
       `\n${COLORS.bold}═══ Gap-Filling Mode: ${GAP_TASKS.length} tasks ═══${COLORS.reset}\n`
     );
