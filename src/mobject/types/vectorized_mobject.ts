@@ -14,7 +14,7 @@ import type { NDArray } from "numpy-ts";
 import { np, partialBezierPoints, integerInterpolate, ORIGIN } from "../../core/math/index.js";
 import type { Point3D, Points3D } from "../../core/math/index.js";
 import type { IVMobject, IColor } from "../../core/types.js";
-import { WHITE, BLUE, BLACK } from "../../utils/color/manim_colors.js";
+import { WHITE, BLACK } from "../../utils/color/manim_colors.js";
 import { Mobject } from "../mobject/index.js";
 import type { ParsableManimColor } from "../../utils/color/index.js";
 
@@ -44,7 +44,10 @@ function getRows(pts: NDArray, start: number, end: number): Points3D {
 
 // ── Defaults ────────────────────────────────────────────────────
 
-const DEFAULT_FILL_COLOR: IColor = BLUE;
+// Python Manim VMobject defaults fill_color / stroke_color to None; when None
+// they fall back to `self.color` (Mobject's color, defaulting to WHITE). Our
+// cascade below mirrors that, so these hard defaults are a last resort only.
+const DEFAULT_FILL_COLOR: IColor = WHITE;
 const DEFAULT_FILL_OPACITY = 0.0;
 const DEFAULT_STROKE_COLOR: IColor = WHITE;
 const DEFAULT_STROKE_OPACITY = 1.0;
@@ -76,9 +79,14 @@ export class VMobject extends Mobject {
 
   constructor(options: VMobjectOptions = {}) {
     super({ color: options.color as ParsableManimColor | undefined });
-    this.fillColor = options.fillColor ?? DEFAULT_FILL_COLOR;
+    // Python Manim VMobject: when `color` is given, it acts as the fallback
+    // for both `fill_color` and `stroke_color` — only the hard defaults apply
+    // if neither is set. Mirror that cascade so `new Dot({ color: WHITE })`
+    // actually produces a white dot (previously fillColor fell through to BLUE).
+    const colorFallback = (options.color as IColor | undefined) ?? undefined;
+    this.fillColor = options.fillColor ?? colorFallback ?? DEFAULT_FILL_COLOR;
     this.fillOpacity = options.fillOpacity ?? DEFAULT_FILL_OPACITY;
-    this.strokeColor = options.strokeColor ?? DEFAULT_STROKE_COLOR;
+    this.strokeColor = options.strokeColor ?? colorFallback ?? DEFAULT_STROKE_COLOR;
     this.strokeOpacity = options.strokeOpacity ?? DEFAULT_STROKE_OPACITY;
     this.strokeWidth = options.strokeWidth ?? DEFAULT_STROKE_WIDTH;
   }
@@ -467,6 +475,18 @@ export class VMobject extends Mobject {
     if (color !== undefined) this.strokeColor = color;
     if (width !== undefined) this.strokeWidth = width;
     if (opacity !== undefined) this.strokeOpacity = opacity;
+    return this;
+  }
+
+  // Python VMobject.set_color fans out to set_fill AND set_stroke. Our Mobject
+  // base class only updates `this.color`, leaving strokeColor/fillColor stale
+  // (renderer reads those) — so callers saw no visible change. Override to
+  // match Python's behaviour; super() still walks the family.
+  override setColor(color?: ParsableManimColor, family = true): this {
+    super.setColor(color, family);
+    const parsed = this.color as unknown as IColor;
+    this.fillColor = parsed;
+    this.strokeColor = parsed;
     return this;
   }
 

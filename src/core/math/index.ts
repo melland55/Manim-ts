@@ -241,20 +241,31 @@ function lineIntersectionT(
 
 // ─── Coordinate Transforms ──────────────────────────────────
 
+/**
+ * Returns [r, theta, phi] from a Cartesian point [x, y, z].
+ * Matches Python Manim's convention (manim.utils.space_ops.cartesian_to_spherical):
+ *   theta = atan2(y, x)    — azimuthal angle from positive x-axis
+ *   phi   = acos(z / r)    — polar angle from positive z-axis
+ */
 export function cartesianToSpherical(point: Point3D): [number, number, number] {
   const r = pointNorm(point);
   if (r === 0) return [0, 0, 0];
   const arr = point.toArray() as number[];
-  const theta = Math.acos(clamp(arr[2] / r, -1, 1));
-  const phi = Math.atan2(arr[1], arr[0]);
+  const theta = Math.atan2(arr[1], arr[0]);
+  const phi = Math.acos(clamp(arr[2] / r, -1, 1));
   return [r, theta, phi];
 }
 
+/**
+ * Returns a Cartesian point [x, y, z] from spherical coordinates.
+ * Matches Python Manim (manim.utils.space_ops.spherical_to_cartesian):
+ *   theta = azimuth from +x axis, phi = polar angle from +z axis.
+ */
 export function sphericalToCartesian(r: number, theta: number, phi: number): Point3D {
   return np.array([
-    r * Math.sin(theta) * Math.cos(phi),
+    r * Math.cos(theta) * Math.sin(phi),
     r * Math.sin(theta) * Math.sin(phi),
-    r * Math.cos(theta),
+    r * Math.cos(phi),
   ]);
 }
 
@@ -459,11 +470,13 @@ export function runningStart(pullFactor = -0.5): RateFunc {
     const mt2 = mt * mt;
     const mt3 = mt2 * mt;
     const mt4 = mt3 * mt;
+    // Equivalent to evaluating the Bézier [0, 0, pullFactor, pullFactor, 1, 1, 1] at t.
+    // Matches manim.utils.rate_functions.running_start exactly.
     return (
       15 * t2 * mt4 * pullFactor +
-      6 * t3 * mt3 * pullFactor +
-      t4 * mt2 * (1 - pullFactor) * 15 +
-      t5 * mt * (2 - pullFactor) * 6 +
+      20 * t3 * mt3 * pullFactor +
+      15 * t4 * mt2 +
+      6 * t5 * mt +
       t6
     );
   });
@@ -473,9 +486,16 @@ export function notQuiteThereRatio(func: RateFunc, proportion = 0.7): RateFunc {
   return (t: number) => proportion * func(t);
 }
 
-export const wiggle: RateFunc = zeroOutside((t) => {
-  return thereAndBack(t) * Math.sin(TAU * t);
-});
+/**
+ * Matches manim.utils.rate_functions.wiggle(t, wiggles=2).
+ * Callable as a RateFunc: `wiggle(t)` uses the default of 2 wiggles.
+ * For a custom count, call `wiggle(t, n)`.
+ */
+export const wiggle: RateFunc & ((t: number, wiggles?: number) => number) =
+  ((t: number, wiggles: number = 2): number => {
+    if (t < 0 || t > 1) return 0;
+    return thereAndBack(t) * Math.sin(wiggles * PI * t);
+  }) as RateFunc & ((t: number, wiggles?: number) => number);
 
 export function squishRateFunc(func: RateFunc, a: number, b: number): RateFunc {
   return (t: number) => {
