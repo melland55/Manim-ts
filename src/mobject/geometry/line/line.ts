@@ -90,22 +90,37 @@ function createDashedVMobject(
   numDashes: number,
   dashedRatio: number,
 ): VMobject[] {
-  if (numDashes < 2) numDashes = 2;
-  const fullDAlpha = 1.0 / numDashes;
-  const partialDAlpha = fullDAlpha * dashedRatio;
+  if (numDashes < 1) return [];
+
+  const r = dashedRatio;
+  const n = numDashes;
+
+  // Mirror Python Manim's DashedVMobject (mobject/types/vectorized_mobject.py).
+  // For open curves (like Line) the dashes are anchored at both ends:
+  //   dash_len  = r / n
+  //   void_len  = (1 - r) / (n - 1)  (for n > 1; else 1 - r)
+  // This produces dashes at 0, period, 2*period, ... with the last dash
+  // ending exactly at t = 1. Our previous implementation used
+  // void_len = (1 - r) / n, which left a gap at the end of the line and
+  // caused a phase drift vs Python.
+  const dashLen = r / n;
+  let voidLen: number;
+  if (n === 1) {
+    voidLen = 1 - r;
+  } else {
+    voidLen = (1 - r) / (n - 1);
+  }
+  const period = dashLen + voidLen;
 
   const dashes: VMobject[] = [];
-  for (let i = 0; i < numDashes; i++) {
-    const a = i * fullDAlpha;
-    const b = a + partialDAlpha;
-    // Create a dash segment using pointFromProportion endpoints
+  for (let i = 0; i < n; i++) {
+    const a = i * period;
+    const b = Math.min(a + dashLen, 1);
     const dash = new VMobject();
-    const startPt = vmobject.pointFromProportion(a);
-    const endPt = vmobject.pointFromProportion(Math.min(b, 1));
-    // Build a simple line segment for each dash
+    const startPt = vmobject.pointFromProportion(Math.min(Math.max(a, 0), 1));
+    const endPt = vmobject.pointFromProportion(b);
     dash.startNewPath(startPt);
     dash.addLineTo(endPt);
-    // Copy stroke style from original
     dash.strokeColor = vmobject.strokeColor;
     dash.strokeWidth = vmobject.strokeWidth;
     dash.strokeOpacity = vmobject.strokeOpacity;
