@@ -55,6 +55,9 @@ export type {
   VariableOptions,
 } from "./numbers/index.js";
 
+// svg_path_to_bezier
+export { svgPathToPoints, svgPathToSubpaths } from "./svg_path_to_bezier.js";
+
 // code_mobject
 export { Code } from "./code_mobject/index.js";
 
@@ -63,3 +66,14 @@ export type {
   BackgroundConfig,
   CodeParagraphConfig,
 } from "./code_mobject/index.js";
+
+// mathjax_renderer
+export { texToSvg } from "./mathjax_renderer.js";
+export type { TexToSvgOptions } from "./mathjax_renderer.js";
+
+// mathtex_browser — browser/Node backend (no pdflatex required)
+export { BrowserMathTex } from "./mathtex_browser.js";
+
+// glyph_vmobject — opentype.js-backed per-character text mobjects
+export { GlyphText } from "./glyph_vmobject.js";
+export type { GlyphTextOptions } from "./glyph_vmobject.js";
