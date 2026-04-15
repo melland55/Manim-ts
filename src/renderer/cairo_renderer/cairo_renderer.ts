@@ -151,6 +151,11 @@ export interface CairoRendererOptions {
  * renderer.play(scene, ...animationArgs);
  * await renderer.sceneFinished(scene);
  * ```
+ *
+ * @deprecated Use {@link ThreeRenderer} from `src/renderer/three/` instead.
+ * This Canvas2D / Cairo back-end is retained only for server-side video export
+ * via `@napi-rs/canvas`; all interactive and browser rendering is now handled
+ * by `ThreeRenderer` / `ThreeScene`.
  */
 export class CairoRenderer implements SceneFileWriterRenderer {
   // ── Public state ──────────────────────────────────────────────

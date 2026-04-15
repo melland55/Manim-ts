@@ -109,7 +109,7 @@ function worldToPixelFast(
  *
  * Usage (Node.js):
  * ```typescript
- * import { createCanvas } from "@napi-rs/canvas";
+ * import { createCanvas } from "canvas";
  * const canvas = createCanvas(1920, 1080);
  * const renderer = new Renderer();
  * renderer.initWithNodeCanvas(canvas);
@@ -123,6 +123,11 @@ function worldToPixelFast(
  * renderer.init(canvas);
  * renderer.render(scene);
  * ```
+ *
+ * @deprecated Use {@link ThreeRenderer} from `src/renderer/three/` instead.
+ * This Canvas2D back-end is retained only for server-side video export via
+ * `@napi-rs/canvas`; all interactive and browser rendering is now handled by
+ * `ThreeRenderer` / `ThreeScene`.
  */
 export class Renderer implements IRenderer {
   private _ctx: Canvas2D | null = null;
