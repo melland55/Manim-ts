@@ -42,25 +42,31 @@ Configure a scene by passing an options object to the constructor.
 
 ```ts
 interface SceneOptions {
-  camera?: Camera;
-  renderer?: IRenderer;
+  camera?: ICamera;
+  cameraClass?: new (...args: unknown[]) => ICamera;
   skipAnimations?: boolean;
   alwaysUpdateMobjects?: boolean;
-  randomSeed?: number;
+  randomSeed?: number | null;
+  frameRate?: number;
+  playback?: boolean;
+  interactive?: boolean;
+  canvas?: HTMLCanvasElement | null;
+  renderer?: "cairo" | "opengl";
 }
 ```
 
 | Option | Default | Description |
 |---|---|---|
-| `camera` | `new Camera()` | The camera used to frame the scene |
-| `renderer` | `new Renderer()` | The renderer used to draw mobjects |
+| `camera` | built from `cameraClass` | Prebuilt camera instance (any `ICamera`) |
+| `cameraClass` | `Camera` | Constructor used to build the camera when `camera` is absent |
 | `skipAnimations` | `false` | If true, animations are skipped (useful for testing) |
 | `alwaysUpdateMobjects` | `false` | If true, all mobjects update every frame even outside animations |
-| `randomSeed` | `undefined` | Seed for deterministic random behavior |
+| `randomSeed` | `null` | Seed for deterministic random behavior |
 | `frameRate` | `30` | Target frame rate for animation playback |
+| `renderer` | `"cairo"` | Renderer backend. `"cairo"` for Canvas2D (default), `"opengl"` for three.js. See [Renderer Modes](/docs/guides/renderer-modes). |
+| `canvas` | `null` | Target `HTMLCanvasElement`. Required for interactive mode and the three.js backend. |
 | `playback` | `false` | **Additive.** Enable timeline recording + `scene.playback.*` API. See [Interactive Playback](/docs/guides/interactive-playback) |
 | `interactive` | `false` | **Additive.** Enable `mobject.on(...)` pointer events + `scene.mobjectAt()`. See [Pointer Events](/docs/guides/pointer-events) |
-| `canvas` | `null` | **Additive.** Canvas element; required for interactive mode |
 
 ## Additive APIs
 
@@ -228,16 +234,26 @@ class MyScene extends Scene {
 }
 ```
 
-## Interactive Scenes
+## Interactive / embedded use
 
-For interactive or embedded use (e.g., in a web page), you can control the scene manually:
+Pass the canvas directly to the scene constructor. Optionally opt into the
+three.js backend with `renderer: "opengl"`.
 
 ```ts
-const scene = new MyScene({
-  renderer: new Renderer(),
-});
+const canvas = document.getElementById("canvas") as HTMLCanvasElement;
+const scene = new MyScene({ canvas });            // Cairo (default)
+// or:
+const scene = new MyScene({ canvas, renderer: "opengl" }); // three.js
 
-// Render to a canvas element
-scene.renderer.init(document.getElementById("canvas") as HTMLCanvasElement);
 await scene.render();
 ```
+
+## Related scene subclasses
+
+| Class | Source | Purpose |
+|-------|--------|---------|
+| `ThreeScene` | `src/scene/three_scene.ts` | Scene preconfigured for the three.js backend. Exposes `threeRenderer`, `threeScene`, `familySyncer`. |
+| `ThreeDScene` | `src/scene/three_d_scene/` | 3D scene using `ThreeDCamera` (Cairo-compatible). Adds `setCameraOrientation`, `beginAmbientCameraRotation`, and phi/theta helpers. |
+| `MovingCameraScene` | `src/scene/moving_camera_scene/` | Uses `MovingCamera` to allow camera translation/scaling during animations. |
+| `ZoomedScene` | `src/scene/zoomed_scene/` | Embeds a secondary zoomed-in viewport. |
+| `VectorScene` / `LinearTransformationScene` | `src/scene/vector_space_scene/` | Helpers for vector-space demos: number planes, animated linear transforms, vector labels. |

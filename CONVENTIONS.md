@@ -129,8 +129,9 @@ writing custom implementations. This saves hundreds of lines and avoids bugs.
 
 ### Rendering & Video Output
 ```typescript
-// Headless Canvas2D for offscreen rendering (replaces Python Cairo)
-import { createCanvas, Canvas, CanvasRenderingContext2D } from "@napi-rs/canvas";
+// Headless Canvas2D for offscreen rendering — node-canvas binds to libcairo,
+// matching Python Manim's pycairo byte-for-byte.
+import { createCanvas, Canvas, CanvasRenderingContext2D } from "canvas";
 
 // Video encoding — replaces Python's subprocess calls to ffmpeg
 import ffmpeg from "fluent-ffmpeg";
@@ -532,14 +533,14 @@ Run `npm run test` after conversion to verify.
 ## 10. Rendering
 
 Rendering is the ONE area where we rewrite rather than translate:
-- Python Manim Cairo → **@napi-rs/canvas** (headless Canvas2D for Node.js)
+- Python Manim Cairo → **canvas** (node-canvas, libcairo bindings — headless Canvas2D for Node.js, byte-for-byte parity with pycairo)
 - Python Manim OpenGL → **WebGL2** (3D scenes, browser)
 - Video output → **fluent-ffmpeg** (replaces subprocess calls to ffmpeg)
 - Image I/O → **sharp** (replaces PIL/Pillow)
 
 ```typescript
 // Frame rendering
-import { createCanvas } from "@napi-rs/canvas";
+import { createCanvas } from "canvas";
 const canvas = createCanvas(1920, 1080);
 const ctx = canvas.getContext("2d");
 // ... draw with standard Canvas2D API ...

@@ -166,11 +166,22 @@ class MyScene extends Scene {
 
 ## Node.js (Server-Side Rendering)
 
-For video export and headless rendering:
+For video export and headless rendering, manim-ts uses `canvas` (node-canvas),
+which binds libcairo directly — the same library Python Manim's pycairo wraps.
+Node-side rasterization therefore matches ManimCE byte-for-byte (verified by a
+57-scene parity harness in `scripts/parity/`).
+
+```bash
+npm install canvas
+```
+
+On Alpine / musl Docker images, `canvas` compiles from source (no prebuilt
+binary ships for musl libc). Either switch to `node:slim` / `node:bookworm`, or
+`apk add --no-cache build-base cairo-dev pango-dev jpeg-dev giflib-dev` first.
 
 ```typescript
 import { Scene, Square, FadeIn, Tex, RED } from "manim-ts";
-import { createCanvas } from "@napi-rs/canvas";
+import { createCanvas } from "canvas";
 
 class ExportScene extends Scene {
   async construct() {

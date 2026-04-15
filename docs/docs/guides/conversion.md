@@ -417,3 +417,30 @@ Method names are converted to camelCase:
 - `get_center()` becomes `getCenter()`
 - `set_fill()` becomes `setFill()`
 - `move_to()` becomes `moveTo()`
+
+## Orchestrator CLI
+
+The conversion is driven by an agent swarm orchestrator in
+`src/orchestrator.ts`. It spawns Claude Code CLI agents (`npx
+@anthropic-ai/claude-code -p`) headlessly and converts modules layer-by-layer
+respecting the dependency graph in `task-graph.json`.
+
+```bash
+npx tsx src/orchestrator.ts [flags]
+```
+
+| Flag | Purpose |
+|------|---------|
+| `--max-parallel=N` | Maximum concurrent agents. Default `5`. |
+| `--start-layer=N` | Resume from a specific dependency layer. Default `0`. |
+| `--only=module.name` | Convert only the named module (and its dependencies already on disk). |
+| `--dry-run` | Print the plan without spawning any agents. |
+| `--skip-typecheck` | Skip the `tsc --noEmit` gate between layers. |
+| `--timeout=N` | Per-agent timeout in seconds. Default `600`. |
+| `--model=MODEL` | Base model (default `sonnet`; large modules auto-upgrade to opus). |
+| `--gaps` | Run the `GAP_TASKS` queue (missing classes / modules) instead of the main conversion. |
+| `--three-js` | Run the three.js migration swarm (renderer + text/math backend, 8 phases). |
+| `--renderer-mode` | Run the renderer-mode swarm (Cairo/three.js backend parity). |
+
+Progress is saved to `results.json` after each layer so runs can be resumed.
+`Ctrl+C` kills all child agents cleanly (uses `taskkill` on Windows).

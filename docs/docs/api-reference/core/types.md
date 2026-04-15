@@ -114,6 +114,8 @@ interface ManimConfig {
   backgroundColor: IColor;
   mediaDir: string;
   quality: "low" | "medium" | "high" | "fourk";
+  /** Renderer backend selection. Mirrors ManimCE's `config.renderer`. @default "cairo" */
+  renderer?: "cairo" | "opengl";
 }
 ```
 
@@ -127,6 +129,7 @@ interface ManimConfig {
 | `backgroundColor` | `IColor` | Scene background color |
 | `mediaDir` | `string` | Output directory for rendered media |
 | `quality` | `string` | One of `"low"`, `"medium"`, `"high"`, `"fourk"` |
+| `renderer` | `"cairo" \| "opengl"` | Renderer backend. Defaults to `"cairo"`. Set to `"opengl"` to activate the three.js WebGL backend. |
 
 ---
 

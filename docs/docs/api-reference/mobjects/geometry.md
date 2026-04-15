@@ -97,7 +97,10 @@ const line = new Line({ start: LEFT, end: RIGHT });
 
 ### Related Classes
 
-- **`DashedLine`** -- a dashed variant of `Line`
+- **`DashedLine`** -- a dashed variant of `Line`. The dash/void spacing uses
+  Python Manim's open-curve formula
+  `void_len = (1 - dashed_ratio) / (num_dashes - 1)`, so dashes start exactly
+  at `start` and end exactly at `end`.
 - **`Arrow`** -- a line with an arrowhead tip
 - **`DoubleArrow`** -- a line with arrowhead tips at both ends
 - **`Vector`** -- an arrow anchored at the origin
@@ -112,6 +115,15 @@ A closed polygon defined by an array of vertices.
 ```ts
 import { Polygon } from "manim-ts/mobjects/geometry";
 ```
+
+:::note Color cascade
+Every `Polygram` subclass (`Polygon`, `Rectangle`, `Square`, `Star`,
+`RegularPolygon`, `Triangle`) forwards the `color` option to **both**
+`fillColor` and `strokeColor` at construction, matching Python Manim's
+behavior. Override either independently by passing `fillColor` or
+`strokeColor` explicitly. (Prior to 2026-04-15 the fill silently defaulted to
+WHITE regardless of `color`.)
+:::
 
 ### PolygonOptions
 

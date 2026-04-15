@@ -8,7 +8,28 @@ sidebar_position: 2
 The color module (`src/core/color/index.ts`) provides the `Color` class implementing `IColor` from `core/types.ts`, along with Manim's complete named color palette. All hex values are verified against ManimCommunity/manim's `manim_colors.py`.
 
 ```typescript
-import { Color, BLUE, RED, WHITE, BLACK } from "manim-ts/core/color";
+import { Color, BLUE, RED, WHITE, BLACK } from "../../src/core/color/index.js";
+```
+
+:::warning Two color systems coexist
+manim-ts ships two separate color classes, both exporting the same palette names
+(`WHITE`, `BLUE`, `BLACK`, `BLUE_D`, ...):
+
+| Module | Class | Use for |
+|--------|-------|---------|
+| `src/core/color/` | `Color` | Low-level color math (`IColor` contract, interpolation, hex/HSL construction). |
+| `src/utils/color/manim_colors.ts` | `ManimColor` | Anything passed to a `Mobject`, `VMobject`, `Surface`, `Polyhedron`, or other public constructor option (`color`, `fillColor`, `strokeColor`, ...). |
+
+Public constructor options expect `ManimColor` instances. `ManimColor.parse(...)`
+rejects `Color` instances with a type error. When in doubt, import palette
+constants from `src/utils/color/manim_colors.ts` rather than `src/core/color/`.
+
+See `CLAUDE.md` (Known Issues) for the full rationale.
+:::
+
+```typescript
+// For anything that hits a Mobject/VMobject constructor:
+import { ManimColor, BLUE, RED } from "../../src/utils/color/manim_colors.js";
 ```
 
 ---

@@ -75,6 +75,19 @@ const scene = new BrowserDemo({ canvas });
 scene.render();
 ```
 
+By default, `Scene` uses the Cairo (Canvas2D) backend. To opt into the three.js
+WebGL backend, pass `renderer: "opengl"`:
+
+```typescript
+const scene = new BrowserDemo({ canvas, renderer: "opengl" });
+```
+
+Note: a single `<canvas>` element can only hold one context type at a time
+(2D or WebGL are mutually exclusive). To switch backends at runtime, replace
+the canvas element — this is how `demo/index.html` implements its Cairo /
+OpenGL toggle button. See the
+[Renderer Modes guide](/docs/guides/renderer-modes) for details.
+
 ### Vite Configuration
 
 manim-ts depends on numpy-ts, which ships as ESM. Some internal modules reference patterns that Vite needs guidance on. Add the following to your `vite.config.ts`:

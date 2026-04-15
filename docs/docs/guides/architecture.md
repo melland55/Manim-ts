@@ -5,68 +5,75 @@ sidebar_position: 1
 
 # Architecture Overview
 
-manim-ts is a TypeScript port of [3Blue1Brown's Manim](https://github.com/3b1b/manim) (Mathematical Animation Engine). It mirrors the Python codebase's module structure while taking advantage of TypeScript's type system and the browser's Canvas2D API.
+manim-ts is a TypeScript port of [3Blue1Brown's Manim](https://github.com/3b1b/manim) (Mathematical Animation Engine). It mirrors the Python codebase's module structure while taking advantage of TypeScript's type system. The default rendering path runs through libcairo (via `canvas` / node-canvas on Node, native `<canvas>` in the browser) for byte-level parity with Python Manim's pycairo pipeline; a three.js / WebGL backend is available opt-in.
 
 ## High-Level Structure
 
 ```
-manim-ts
-  |
-  +-- core/           Foundation: math, color, type interfaces
-  |     +-- math/     numpy-ts, bezier, rate functions, quaternions
-  |     +-- color/    Color class + full Manim palette
-  |     +-- types.ts  IMobject, IVMobject, IAnimation, IScene, etc.
-  |
-  +-- mobjects/       Visual objects
-  |     +-- mobject.ts          Base Mobject class
-  |     +-- types/              VMobject, Group, VGroup
-  |     +-- geometry/           Line, Arrow, Circle, Square, Polygon, Arc
-  |     +-- text/               Text, MathTex, Tex, MarkupText
-  |     +-- svg/                SVGMobject, SVGPath
-  |     +-- three_d/            Surface, ThreeDVMobject, Sphere, Cylinder
-  |     +-- coordinate_systems/ NumberLine, Axes, NumberPlane, ComplexPlane
-  |     +-- graph/              Graph, DiGraph (via graphology)
-  |     +-- matrix.ts           Matrix mobject
-  |     +-- table.ts            Table mobject
-  |     +-- image.ts            ImageMobject
-  |     +-- boolean_ops.ts      Union, Intersection, Difference (via polygon-clipping)
-  |
-  +-- animations/     Transformations over time
-  |     +-- animation.ts        Base Animation class
-  |     +-- creation.ts         Create, Uncreate, DrawBorderThenFill, Write
-  |     +-- fading.ts           FadeIn, FadeOut, FadeTransform
-  |     +-- transform.ts        Transform, ReplacementTransform, MoveToTarget
-  |     +-- growing.ts          GrowFromCenter, GrowFromPoint, GrowArrow
-  |     +-- indication.ts       Indicate, Flash, Circumscribe, Wiggle
-  |     +-- movement.ts         MoveAlongPath, Homotopy
-  |     +-- rotation.ts         Rotate, Rotating
-  |     +-- composition.ts      AnimationGroup, Succession, LaggedStart
-  |     +-- changing.ts         TracedPath, always_redraw equivalent
-  |
-  +-- scenes/         Orchestration and output
-  |     +-- scene.ts            Scene base class
-  |     +-- moving_camera.ts    MovingCameraScene
-  |     +-- three_d_scene.ts    ThreeDScene
-  |     +-- zoomed_scene.ts     ZoomedScene
-  |
-  +-- cameras/        Viewing and projection
-  |     +-- camera.ts           Base Camera
-  |     +-- moving_camera.ts    MovingCamera + CameraFrame
-  |     +-- three_d_camera.ts   ThreeDCamera (perspective)
-  |
-  +-- renderer/       Drawing to canvas
-  |     +-- renderer.ts         Canvas2D renderer
-  |     +-- opengl_renderer.ts  OpenGL stubs
-  |
-  +-- utils/          Shared utilities
-        +-- rate_functions.ts   Easing functions
-        +-- bezier.ts           Bezier curve math
-        +-- paths.ts            Path interpolation functions
-        +-- space_ops.ts        Vector/spatial math
-        +-- iterables.ts        Array utilities
-        +-- config_ops.ts       Config merging
-        +-- file_ops.ts         File system utilities
-        +-- tex.ts              TeX/KaTeX utilities
+src/
+  __init__/           Top-level namespace barrel (mirrors manim/__init__.py)
+  __main__/           CLI entry points
+  _config/            Config loading
+  cli/                Command-line tool scaffolding
+  constants/          Shared numeric/color constants
+  core/               Foundation
+    math/             numpy-ts wrapper, bezier, rate functions, quaternions
+    color/            Color class + full Manim palette
+    types.ts          IMobject, IVMobject, IAnimation, IScene, etc.
+    canvas-factory.ts Browser/Node canvas creation
+  data_structures/    Internal data structures
+  integrations/       react.tsx, vue.ts adapters
+  mobject/            Visual objects (singular "mobject")
+    mobject/          Base Mobject class
+    types/            VMobject, VGroup, point_cloud
+    geometry/         Line, Arrow, Circle, Square, Polygon, Arc, ...
+    text/             Text, MathTex, Tex, MarkupText
+    svg/              SVGMobject, Brace, BraceLabel
+    three_d/          Surface, ThreeDVMobject, Sphere, Cylinder, Polyhedra
+    graphing/         NumberLine, Axes, NumberPlane, ComplexPlane, functions
+    graph/            Graph, DiGraph (via graphology)
+    matrix/           Matrix mobject
+    table/            Table mobject
+    value_tracker/    ValueTracker
+    vector_field/     VectorField, ArrowVectorField, StreamLines
+    frame/            ScreenRectangle / frame helpers
+    logo/             Manim logo mobject
+    opengl/           OpenGL-specific mobject shims
+    utils/            Shared mobject helpers
+  opengl/             Legacy OpenGL shader/renderer scaffolding
+  renderer/           Drawing backends
+    scene_backend.ts  SceneBackend interface (the contract)
+    renderer.ts       Legacy IRenderer wrapper
+    cairo/            CairoBackend (Canvas2D — default)
+    three/            ThreeBackend (three.js WebGL — opt-in)
+    cairo_renderer/   Legacy cairo renderer scaffolding
+    opengl_renderer/  Legacy OpenGL renderer scaffolding
+    opengl_renderer_window/
+    shader/           Shader helpers
+    shader_wrapper/
+    vectorized_mobject_rendering/
+  scene/              Orchestration and output
+    scene/            Scene base class
+    three_scene.ts    Scene preconfigured for the three.js backend
+    three_d_scene/    ThreeDScene (Cairo + ThreeDCamera 3D)
+    moving_camera_scene/  MovingCameraScene
+    zoomed_scene/     ZoomedScene
+    vector_space_scene/   VectorScene, LinearTransformationScene
+    section/          Section / video metadata
+    scene_file_writer/    MP4/WebM/PNG export
+    timeline/         Timeline + TimelineControls (additive)
+    interaction/      PointerDispatcher, hit_test, EventEmitter (additive)
+  camera/             Viewing and projection
+    camera/           Base Camera
+    moving_camera/    MovingCamera + CameraFrame
+    three_d_camera/   ThreeDCamera (software 3D for Cairo)
+    mapping_camera/   MappingCamera, SplitScreenCamera, OldMultiCamera
+    multi_camera/     MultiCamera
+  typing/             Shared TS type aliases
+  utils/              Shared utilities (bezier, rate_functions, space_ops,
+                      iterables, config_ops, file_ops, tex, color, ...)
+  orchestrator.ts     Conversion agent swarm
+  prompt-builder.ts   Prompt construction for agents
 ```
 
 ## Core Foundation
@@ -206,16 +213,52 @@ Scene variants:
 
 ## Rendering
 
-manim-ts uses a dual rendering strategy:
+manim-ts ships two renderer backends behind a common `SceneBackend` interface
+(`src/renderer/scene_backend.ts`). Both implement the same six methods:
+`addMobject`, `removeMobject`, `sync`, `render`, `resize`, `dispose`.
 
-- **Browser**: Native Canvas2D API on an HTML `<canvas>` element
-- **Node.js**: `@napi-rs/canvas` (Canvas2D implementation for server-side rendering)
+- **`CairoBackend`** (default) — Canvas2D. Uses `canvas` (node-canvas, which
+  binds libcairo — matching Python Manim's pycairo byte-for-byte) on Node.js
+  and the native `<canvas>` element in the browser. Translates VMobject bezier
+  data into `moveTo` / `bezierCurveTo` / `fill` / `stroke` calls.
+- **`ThreeBackend`** (opt-in) — three.js WebGL. Uses `Line2` for GPU-width
+  strokes and `earcut` triangulation for fills.
 
-Both paths use the same Canvas2D drawing code. The renderer translates mobject bezier data into canvas path operations (moveTo, bezierCurveTo, fill, stroke).
+Select a backend via `ManimConfig.renderer` (`"cairo"` | `"opengl"`) or the
+scene constructor:
 
-For video output in Node.js, frames are piped to **fluent-ffmpeg** for encoding into MP4, WebM, GIF, or MOV containers.
+```typescript
+const scene = new Scene({ canvas });                        // Cairo (default)
+const scene = new Scene({ canvas, renderer: "opengl" });    // three.js WebGL
+```
 
-OpenGL renderer stubs exist for future WebGL/WebGPU hardware-accelerated rendering.
+### Backend contract
+
+`ThreeBackend` renders exactly the mobjects the caller passed to `addMobject`
+— it never walks `getFamily()`. Callers that want hierarchy should flatten the
+family themselves (see `extractFamily` in `demo/real-demo.ts`) and add each
+leaf. This matches the `FamilySyncer` expectation inside `ThreeBackend`.
+
+`CairoBackend` is slightly more forgiving: when composing its draw order
+(`_collectSortedFamily`) it calls `getFamily(true)` on each registered mobject,
+dedupes, then sorts by `zIndex`. This is required for mobjects whose visible
+geometry lives on submobjects — `DashedLine` / `DottedLine` (each dash is a
+child), `DoubleArrow` (two tip children), `Axes` (tick marks). Without the
+family expansion, those classes rendered nothing under the flat-list
+contract.
+
+### 3D under Cairo
+
+3D mobjects still work under `CairoBackend`: install a `ThreeDCamera` via
+`backend.setCamera(camera)` and the backend calls `camera.getMobjectsToDisplay`
+for view-space depth sorting (back-to-front painter's algorithm), matching
+Python Manim's Cairo + `ThreeDCamera` pipeline. Without a `ThreeDCamera`, Cairo
+simply sorts by `zIndex`.
+
+For video output in Node.js, frames are piped to **fluent-ffmpeg** for encoding
+into MP4, WebM, GIF, or MOV containers.
+
+See the [Renderer Modes guide](/docs/guides/renderer-modes) for full details.
 
 ## Library Replacements
 
@@ -225,7 +268,7 @@ Every external dependency used by Python Manim has a TypeScript equivalent:
 |---|---|---|
 | numpy | numpy-ts | N-dimensional arrays, linear algebra |
 | numpy (4x4 matrices) | gl-matrix | Transformation matrices |
-| cairo | Canvas2D / @napi-rs/canvas | 2D rendering |
+| cairo | Canvas2D / `canvas` (node-canvas, libcairo) | 2D rendering |
 | subprocess + ffmpeg | fluent-ffmpeg | Video encoding |
 | PIL/Pillow | sharp | Image I/O |
 | svgelements | svg-path-commander | SVG path parsing |

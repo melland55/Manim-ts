@@ -90,6 +90,7 @@ const sidebars: SidebarsConfig = {
       items: [
         "guides/architecture",
         "guides/conversion",
+        "guides/renderer-modes",
         "guides/browser-usage",
         "guides/interactive-playback",
         "guides/pointer-events",

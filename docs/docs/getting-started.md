@@ -50,11 +50,26 @@ This renders a blue circle that draws itself onto the screen, pauses for one sec
 
 ## Quick Start — Node.js (Server-Side Rendering)
 
-For server-side rendering or video export, manim-ts uses `@napi-rs/canvas` as a drop-in Canvas2D backend and `fluent-ffmpeg` for video encoding.
+For server-side rendering or video export, manim-ts uses `canvas` (node-canvas — libcairo bindings) as a Canvas2D backend and `fluent-ffmpeg` for video encoding. Because node-canvas wraps libcairo directly, Node-side rasterization now matches Python Manim's pycairo pipeline byte-for-byte.
+
+Install with:
+
+```bash
+npm install canvas
+```
+
+:::note Alpine / musl Docker images
+On Alpine/musl images, `canvas` compiles from source. Either use a glibc-based image
+(`node:slim` / `node:bookworm`) or pre-install the build deps:
+
+```dockerfile
+RUN apk add --no-cache build-base cairo-dev pango-dev jpeg-dev giflib-dev
+```
+:::
 
 ```typescript
 import { Scene, Square, FadeIn, Write, Tex, RED } from "manim-ts";
-import { createCanvas } from "@napi-rs/canvas";
+import { createCanvas } from "canvas";
 
 class ExportScene extends Scene {
   async construct() {
@@ -119,9 +134,22 @@ const vertices: Points3D = np.array([
 ]);
 ```
 
-### Browser-native Canvas2D rendering
+### Two renderer backends: Cairo (default) and three.js
 
-Instead of Cairo (the Python rendering backend), manim-ts renders directly to an HTML Canvas2D context in the browser. This means no binary dependencies for browser usage — just import and go.
+manim-ts ships two renderer backends behind a common `SceneBackend` interface:
+
+- **`CairoBackend`** (default) — Canvas2D, matching ManimCE's default Cairo
+  renderer. Runs in the browser via native `<canvas>` and in Node.js via
+  `canvas` (node-canvas, libcairo bindings — matches pycairo byte-for-byte).
+  No binary dependencies for browser usage.
+- **`ThreeBackend`** — three.js WebGL. Opt in with `renderer: "opengl"`:
+
+  ```typescript
+  const scene = new MyScene({ canvas, renderer: "opengl" });
+  ```
+
+See the [Renderer Modes guide](/docs/guides/renderer-modes) for details on
+choosing a backend, 3D under Cairo, and three.js color / anti-aliasing tuning.
 
 ### Mathematical fidelity with numpy-ts
 
@@ -158,6 +186,7 @@ const scene = new MyScene({
 
 ## What's Next
 
+- **[Renderer Modes](/docs/guides/renderer-modes)** — Cairo vs. three.js backends, 3D under Cairo, color and AA tuning.
 - **[Browser Usage Guide](/docs/guides/browser-usage)** — Set up manim-ts with Vite, interactive demos, and performance tips.
 - **[Interactive Playback](/docs/guides/interactive-playback)** — Scrubbable timeline, play/pause/seek.
 - **[Pointer Events](/docs/guides/pointer-events)** — `mobject.on(...)` events and hit-testing.

@@ -5,7 +5,26 @@ sidebar_position: 2
 
 # Camera
 
-Cameras define the viewpoint from which a scene is rendered. manim-ts provides three camera classes for different use cases: `Camera` for static 2D scenes, `MovingCamera` for panning and zooming, and `ThreeDCamera` for 3D perspective rendering.
+Cameras define the viewpoint from which a scene is rendered. The `src/camera/`
+barrel exports:
+
+| Class | Source | Purpose |
+|-------|--------|---------|
+| `Camera` | `src/camera/camera/` | Fixed-frame 2D view. Default camera. |
+| `MovingCamera` | `src/camera/moving_camera/` | Animatable `CameraFrame` (pan/zoom). |
+| `ThreeDCamera` | `src/camera/three_d_camera/` | Software 3D projection for the Cairo backend (phi/theta/gamma). |
+| `MappingCamera` / `OldMultiCamera` / `SplitScreenCamera` | `src/camera/mapping_camera/` | Apply a per-pixel mapping, or composite multiple sub-cameras. |
+| `MultiCamera` | `src/camera/multi_camera/` | Newer multi-viewport camera used by `ZoomedScene`. |
+
+```ts
+import {
+  Camera,
+  MovingCamera,
+  ThreeDCamera,
+  MappingCamera,
+  MultiCamera,
+} from "../../src/camera/index.js";
+```
 
 ## Camera (Base)
 
@@ -157,8 +176,8 @@ import { ThreeDCamera, ThreeDScene, Surface, PI } from "manim-ts";
 
 class My3DScene extends ThreeDScene {
   async construct(): Promise<void> {
-    // Set initial camera orientation
-    this.setCamera({
+    // Set initial camera orientation (method lives on ThreeDScene).
+    this.setCameraOrientation({
       phi: 75 * DEGREES,
       theta: -45 * DEGREES,
     });
@@ -205,17 +224,29 @@ interface ThreeDCameraOptions extends CameraOptions {
 
 ### Key Methods
 
-#### `setCamera({ phi?, theta?, gamma?, focalDistance? }): void`
+#### `getPhi(): number` / `getTheta(): number` / `getGamma(): number`
 
-Set camera orientation parameters directly.
+Return the current spherical angles.
 
-#### `getCameraOrientation(): { phi: number, theta: number, gamma: number }`
+#### `projectPoints(points: Points3D): Points3D`
 
-Returns the current camera orientation.
+Project many 3D points onto the 2D camera plane. Called by `CairoBackend`
+before rasterizing VMobject subpaths.
 
 #### `projectPoint(point: Point3D): Point3D`
 
-Projects a 3D point onto the 2D camera plane using perspective projection.
+Convenience wrapper that projects a single point.
+
+#### `getMobjectsToDisplay(mobjects, includeSubmobjects?, excludedMobjects?): IMobject[]`
+
+Return the input mobjects sorted back-to-front by view-space z. Used by
+`CairoBackend` to match ManimCE's Cairo + 3D painter's-algorithm pipeline.
+
+Orientation is set on the scene, not the camera directly:
+
+```ts
+this.setCameraOrientation({ phi: 75 * DEGREES, theta: -45 * DEGREES });
+```
 
 ## Camera Comparison
 
