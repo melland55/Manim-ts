@@ -1,15 +1,26 @@
 /**
  * Browser demo — COMPREHENSIVE engine test.
  *
- * Uses the REAL manim-ts engine classes to construct geometry,
- * then extracts bezier points into plain arrays for fast Canvas2D rendering.
- * No numpy-ts in the hot render/animation loop.
+ * Uses the REAL manim-ts engine classes to construct geometry.
+ * Rendering is done via ThreeScene (three.js WebGL backend) instead of Canvas2D.
+ * Animation state is tracked in plain Point3[] arrays (zero numpy-ts overhead
+ * in the hot path), synced back to backing VMobjects before each render frame.
  *
  * Tests: all geometry, transforms, animations, colors, and stress.
  */
 
 import { Circle, Square, Triangle, RegularPolygon, Line, Arc, Polygon } from "../src/mobject/geometry/index.js";
 import { np, TAU, PI, UP, DOWN, LEFT, RIGHT, ORIGIN, DEGREES } from "../src/core/math/index.js";
+import { ThreeBackend } from "../src/renderer/three/three_backend.js";
+import { CairoBackend } from "../src/renderer/cairo/cairo_backend.js";
+import { ThreeDCamera } from "../src/camera/three_d_camera/index.js";
+import {
+  makeOrthoCamera,
+  makePerspectiveCamera,
+  applyPhiTheta,
+} from "../src/renderer/three/three_camera.js";
+import * as THREE from "three";
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import {
   RED, RED_A, RED_B, RED_C, RED_D, RED_E,
   BLUE, BLUE_A, BLUE_B, BLUE_C, BLUE_D, BLUE_E,
@@ -62,6 +73,10 @@ import { ArrowVectorField, StreamLines } from "../src/mobject/vector_field/index
 // Value tracker
 import { ValueTracker } from "../src/mobject/value_tracker/index.js";
 
+// KaTeX (for equation rendering in the Text tab)
+import katex from "katex";
+import "katex/dist/katex.min.css";
+
 // ── Logging ─────────────────────────────────────────────────
 
 const logEl = document.getElementById("log")!;
@@ -78,6 +93,7 @@ function log(msg: string): void {
 type Point3 = [number, number, number];
 
 interface RenderMobject {
+  vmob: VMobject;        // backing engine object (rendered via ThreeScene)
   points: Point3[];
   fillColor: IColor;
   fillOpacity: number;
@@ -86,8 +102,6 @@ interface RenderMobject {
   strokeWidth: number;
   center: Point3;
   label?: string;
-  showDot?: boolean;
-  dotPosition?: Point3;  // fixed dot position (doesn't move with points)
   forceClose?: boolean;  // force closePath even if path endpoints don't match
 }
 
@@ -106,6 +120,7 @@ function extractRenderMobject(mob: VMobject, label?: string): RenderMobject {
   }
   const c = mob.getCenter();
   return {
+    vmob: mob,
     points,
     fillColor: mob.fillColor,
     fillOpacity: mob.fillOpacity,
@@ -115,6 +130,26 @@ function extractRenderMobject(mob: VMobject, label?: string): RenderMobject {
     center: [Number(c.item(0)), Number(c.item(1)), Number(c.item(2))],
     label,
   };
+}
+
+/**
+ * Sync a RenderMobject's current animation state back into its backing VMobject
+ * so ThreeScene can render the updated geometry and style.
+ */
+function syncRenderMobToVMob(mob: RenderMobject): void {
+  const vm = mob.vmob;
+  // Sync points (NDArray ← plain array)
+  if (mob.points.length === 0) {
+    vm.points = np.zeros([0, 3]);
+  } else {
+    vm.points = np.array(mob.points);
+  }
+  // Sync style
+  vm.fillColor = mob.fillColor;
+  vm.fillOpacity = mob.fillOpacity;
+  vm.strokeColor = mob.strokeColor;
+  vm.strokeOpacity = mob.strokeOpacity;
+  vm.strokeWidth = mob.strokeWidth;
 }
 
 /**
@@ -158,7 +193,17 @@ function extractFamily(mob: VMobject, label?: string): RenderMobject[] {
             sp.get([i, 2]) as number,
           ]);
         }
+        // Create a synthetic VMobject for this subpath so ThreeScene can render it.
+        const spVmob = new VMobject({
+          fillColor: mob.fillColor,
+          fillOpacity: mob.fillOpacity,
+          strokeColor: mob.strokeColor,
+          strokeOpacity: mob.strokeOpacity,
+          strokeWidth: mob.strokeWidth,
+        });
+        spVmob.points = np.array(spPoints);
         results.push({
+          vmob: spVmob,
           points: spPoints,
           fillColor: mob.fillColor,
           fillOpacity: mob.fillOpacity,
@@ -221,12 +266,6 @@ function geometricCentroid(points: Point3[]): Point3 {
   return [sx / anchors.length, sy / anchors.length, sz / anchors.length];
 }
 
-// ── Color helper ─────────────────────────────────────────────
-
-function colorCSS(c: IColor, opacity: number): string {
-  return `rgba(${Math.round(c.r * 255)},${Math.round(c.g * 255)},${Math.round(c.b * 255)},${opacity})`;
-}
-
 // ── Point math (plain tuples — no objects, no allocations) ───
 
 function lerpP3(a: Point3, b: Point3, t: number): Point3 {
@@ -251,71 +290,8 @@ function linear(t: number): number {
   return t;
 }
 
-// ── Fast Canvas2D rendering ──────────────────────────────────
-
 const FRAME_WIDTH = 14.222222222222221;
 const FRAME_HEIGHT = 8;
-
-function setupTransform(ctx: CanvasRenderingContext2D, pw: number, ph: number): void {
-  ctx.setTransform(
-    pw / FRAME_WIDTH, 0, 0,
-    -(ph / FRAME_HEIGHT),
-    pw / 2, ph / 2,
-  );
-}
-
-function drawPath(ctx: CanvasRenderingContext2D, points: Point3[], forceClose = false): void {
-  if (points.length === 0) return;
-  ctx.beginPath();
-  ctx.moveTo(points[0][0], points[0][1]);
-  for (let i = 1; i + 2 <= points.length; i += 3) {
-    ctx.bezierCurveTo(
-      points[i][0], points[i][1],
-      points[i + 1][0], points[i + 1][1],
-      points[i + 2][0], points[i + 2][1],
-    );
-  }
-  // Only close the path if the shape is closed (last anchor ≈ first anchor)
-  // This matches Manim: Arc is open, Circle/Polygon are closed
-  const last = points[points.length - 1];
-  const first = points[0];
-  const isClosed = Math.abs(last[0] - first[0]) < 1e-4 && Math.abs(last[1] - first[1]) < 1e-4;
-  if (isClosed || forceClose) ctx.closePath();
-}
-
-function renderMob(ctx: CanvasRenderingContext2D, mob: RenderMobject, pw: number, ph: number): void {
-  if (mob.points.length === 0) return;
-  ctx.save();
-  setupTransform(ctx, pw, ph);
-  drawPath(ctx, mob.points, mob.forceClose);
-
-  if (mob.fillOpacity > 0) {
-    ctx.fillStyle = colorCSS(mob.fillColor, mob.fillOpacity);
-    ctx.fill();
-  }
-  if (mob.strokeOpacity > 0 && mob.strokeWidth > 0) {
-    ctx.strokeStyle = colorCSS(mob.strokeColor, mob.strokeOpacity);
-    ctx.lineWidth = mob.strokeWidth * 0.01;
-    ctx.lineJoin = "round";
-    ctx.lineCap = "round";
-    ctx.stroke();
-  }
-
-  // Draw fixed center dot if requested
-  if (mob.showDot && mob.dotPosition) {
-    const cx = mob.dotPosition[0];
-    const cy = mob.dotPosition[1];
-    ctx.beginPath();
-    ctx.arc(cx, cy, 0.06, 0, TAU);
-    ctx.fillStyle = "rgba(255,255,255,0.9)";
-    ctx.fill();
-    ctx.strokeStyle = "rgba(0,0,0,0.6)";
-    ctx.lineWidth = 0.015;
-    ctx.stroke();
-  }
-
-  ctx.restore();
-}
 
 // ── Animation helpers (pure array math) ──────────────────────
 
@@ -538,12 +514,18 @@ interface AnimState {
   growCenter?: Point3;
 }
 
+type RendererMode = "opengl" | "cairo";
+
+const BG_COLOR = { r: 0x1d / 255, g: 0x1f / 255, b: 0x2c / 255, a: 1 };
+
 class DemoScene {
-  private canvas: HTMLCanvasElement;
-  private ctx: CanvasRenderingContext2D;
-  private pw: number;
-  private ph: number;
-  private bgColor: IColor = { r: 0.114, g: 0.122, b: 0.176, a: 1.0 };
+  private _backend: ThreeBackend | CairoBackend;
+  private _mode: RendererMode;
+  private _canvas: HTMLCanvasElement;
+  private _orbit: OrbitControls | null = null;
+  private _wants3D = false;
+  private _phi3D = (75 * Math.PI) / 180;
+  private _theta3D = (-30 * Math.PI) / 180;
 
   private mobjects: RenderMobject[] = [];
   private animQueue: (() => AnimState)[] = [];
@@ -551,30 +533,127 @@ class DemoScene {
   private running = false;
   onComplete: (() => void) | null = null;
 
-  constructor(canvasId: string) {
-    this.canvas = document.getElementById(canvasId) as HTMLCanvasElement;
-    this.ctx = this.canvas.getContext("2d")!;
-    this.pw = this.canvas.width;
-    this.ph = this.canvas.height;
+  constructor(canvasId: string, mode: RendererMode = "cairo") {
+    const canvas = document.getElementById(canvasId) as HTMLCanvasElement;
+    this._canvas = canvas;
+    this._mode = mode;
+    this._backend = this._buildBackend(mode);
+    this.renderFrame();
+  }
+
+  get mode(): RendererMode { return this._mode; }
+
+  private _buildBackend(mode: RendererMode): ThreeBackend | CairoBackend {
+    if (mode === "opengl") {
+      const b = new ThreeBackend({ canvas: this._canvas });
+      b.threeScene.background = new THREE.Color(0x1d1f2c);
+      return b;
+    }
+    const b = new CairoBackend({ canvas: this._canvas });
+    b.setBackgroundColor(BG_COLOR);
+    b.resize(this._canvas.width, this._canvas.height);
+    return b;
+  }
+
+  /** Swap renderers at runtime. Preserves mobjects and re-renders. */
+  setRendererMode(mode: RendererMode): void {
+    if (mode === this._mode) return;
+    if (this._orbit) { this._orbit.dispose(); this._orbit = null; }
+    this._backend.dispose();
+    // A canvas that already has a WebGL context cannot hand out a 2D context
+    // (and vice versa). Replace the element with a fresh clone so the new
+    // backend can claim the context type it needs.
+    const old = this._canvas;
+    const fresh = document.createElement("canvas");
+    fresh.id = old.id;
+    fresh.width = old.width;
+    fresh.height = old.height;
+    fresh.className = old.className;
+    fresh.style.cssText = old.style.cssText;
+    old.parentNode!.replaceChild(fresh, old);
+    this._canvas = fresh;
+    this._mode = mode;
+    this._backend = this._buildBackend(mode);
+    for (const m of this.mobjects) this._backend.addMobject(m.vmob);
+    if (this._wants3D) this.setPerspective3D(this._phi3D, this._theta3D);
     this.renderFrame();
   }
 
   add(mob: RenderMobject): void {
-    if (!this.mobjects.includes(mob)) this.mobjects.push(mob);
+    if (!this.mobjects.includes(mob)) {
+      this.mobjects.push(mob);
+      this._backend.addMobject(mob.vmob);
+    }
   }
 
   remove(mob: RenderMobject): void {
     const idx = this.mobjects.indexOf(mob);
-    if (idx >= 0) this.mobjects.splice(idx, 1);
+    if (idx >= 0) {
+      this.mobjects.splice(idx, 1);
+      this._backend.removeMobject(mob.vmob);
+    }
   }
 
   clearAll(): void {
+    for (const m of this.mobjects) this._backend.removeMobject(m.vmob);
     this.mobjects = [];
     this.animQueue = [];
     this.activeAnim = null;
     this.running = false;
     this.onComplete = null;
+    this._wants3D = false;
     this.renderFrame();
+  }
+
+  /**
+   * Swap the ThreeScene camera to a tilted PerspectiveCamera for 3D demos,
+   * so Sphere/Cube/Cone/Cylinder/Torus render with actual depth instead of
+   * being projected flat. Uses Manim's ThreeDCamera default phi/theta.
+   */
+  setPerspective3D(phi: number = (75 * Math.PI) / 180, theta: number = (-30 * Math.PI) / 180): void {
+    this._wants3D = true;
+    this._phi3D = phi;
+    this._theta3D = theta;
+    if (this._mode !== "opengl") {
+      // Cairo backend: install a ThreeDCamera so sub-surfaces are depth-sorted
+      // back-to-front (matches ManimCE Cairo + ThreeDCamera pipeline).
+      const cairo = this._backend as CairoBackend;
+      const cam3d = new ThreeDCamera({
+        phi,
+        theta,
+        frameWidth: 14.222,
+        frameHeight: 8.0,
+        pixelWidth: this._canvas.width,
+        pixelHeight: this._canvas.height,
+      });
+      cairo.setCamera(cam3d);
+      return;
+    }
+    const three = this._backend as ThreeBackend;
+    // Orthographic camera with a phi/theta viewing direction: objects at
+    // different XY positions stay the same size (no foreshortening), while
+    // still showing 3D faces. Matches Manim's default ThreeDCamera, which
+    // also uses orthographic projection.
+    const cam = makeOrthoCamera(14.222, 8.0);
+    applyPhiTheta(cam, phi, theta, 10);
+    three.threeRenderer.setCamera(cam);
+
+    if (this._orbit) this._orbit.dispose();
+    this._orbit = new OrbitControls(cam, this._canvas);
+    this._orbit.target.set(0, 0, 0);
+    this._orbit.enableDamping = false;
+    this._orbit.addEventListener("change", () => this.renderFrame());
+    this._orbit.update();
+  }
+
+  /** Restore the default 2D OrthographicCamera (for flat demos). */
+  setOrtho2D(): void {
+    this._wants3D = false;
+    if (this._orbit) { this._orbit.dispose(); this._orbit = null; }
+    if (this._mode !== "opengl") return;
+    const three = this._backend as ThreeBackend;
+    const cam = makeOrthoCamera(14.222, 8.0);
+    three.threeRenderer.setCamera(cam);
   }
 
   queueCreate(mob: RenderMobject, duration = 1.5): void {
@@ -681,13 +760,24 @@ class DemoScene {
   }
 
   queueWait(duration = 0.5): void {
+    // Invisible placeholder VMobject — not added to scene, just drives the timer.
+    const waitVmob = new VMobject({ fillOpacity: 0, strokeOpacity: 0, strokeWidth: 0 });
     this.animQueue.push(() => {
-      return { type: "create", mob: { points: [], fillColor: WHITE, fillOpacity: 0, strokeColor: WHITE, strokeOpacity: 0, strokeWidth: 0, center: [0, 0, 0] }, fullPoints: [], startTime: performance.now(), duration, done: false };
+      const mob: RenderMobject = { vmob: waitVmob, points: [], fillColor: WHITE, fillOpacity: 0, strokeColor: WHITE, strokeOpacity: 0, strokeWidth: 0, center: [0, 0, 0] };
+      return { type: "create", mob, fullPoints: [], startTime: performance.now(), duration, done: false };
     });
   }
 
   play(): void {
     if (this.running) return;
+    // Nothing to animate → render a single frame and bail (no RAF loop).
+    // Prevents the scene from burning CPU re-rendering static content,
+    // which is especially bad for Cairo 3D (projectPoints per sphere quad).
+    if (this.animQueue.length === 0) {
+      this.renderFrame();
+      if (this.onComplete) this.onComplete();
+      return;
+    }
     this.running = true;
     this.startNext();
     this.loop();
@@ -811,13 +901,13 @@ class DemoScene {
   }
 
   private renderFrame(): void {
-    this.ctx.resetTransform();
-    this.ctx.fillStyle = colorCSS(this.bgColor, 1);
-    this.ctx.fillRect(0, 0, this.pw, this.ph);
-
+    // Sync each RenderMobject's animation state back to its backing VMobject.
     for (const mob of this.mobjects) {
-      renderMob(this.ctx, mob, this.pw, this.ph);
+      syncRenderMobToVMob(mob);
     }
+    // Sync + render through the active backend (three.js or Canvas2D).
+    this._backend.sync();
+    this._backend.render();
   }
 }
 
@@ -852,6 +942,25 @@ function buildLine(opts: any, label?: string): RenderMobject {
 // ── Scene instance ───────────────────────────────────────────
 
 const scene = new DemoScene("manim-canvas");
+
+(window as any).setRendererMode = (mode: "opengl" | "cairo") => {
+  scene.setRendererMode(mode);
+  log(`Renderer: ${mode === "opengl" ? "three.js (OpenGL)" : "Canvas2D (Cairo)"}`);
+};
+(window as any).getRendererMode = () => scene.mode;
+
+// Ensure the text overlay is cleared whenever the scene is cleared, so
+// switching between Text-tab demos and non-text demos doesn't leave stale
+// HTML on top of the canvas.
+{
+  const originalClearAll = scene.clearAll.bind(scene);
+  scene.clearAll = () => {
+    originalClearAll();
+    clearTextOverlay();
+    // Reset to 2D camera by default; 3D demos reinstate a perspective camera.
+    scene.setOrtho2D();
+  };
+}
 
 // ── GEOMETRY TESTS ───────────────────────────────────────────
 
@@ -1304,14 +1413,6 @@ function buildStandardShapes(): RenderMobject[] {
   log("Animation: Rotate — all shapes spinning simultaneously");
   const isArcShape = (label: string) => label === "Arc" || label === "Pacman";
   const shapes = buildStandardShapes();
-
-  // Show fixed center dots — geometric centroid for closed polygons, bounding box for arc
-  for (const s of shapes) {
-    s.showDot = true;
-    s.dotPosition = isArcShape(s.label ?? "")
-      ? boundingBoxCenter(s.points)
-      : geometricCentroid(s.points);
-  }
 
   // Add all shapes immediately (no grow animation)
   for (const s of shapes) {
@@ -2041,84 +2142,458 @@ function stressTest(count: number): void {
   }
 };
 
-// ── 3D SHAPES (projected flat) ──────────────────────────────
+// ── 3D SHAPES (one per button) ──────────────────────────────
 
-(window as any).test3DShapes = () => {
+function show3DShape(label: string, build: () => VMobject): void {
   scene.clearAll();
-  log("3D Shapes: Sphere, Cube, Cone, Cylinder, Torus (projected to 2D)");
-
+  scene.setPerspective3D();
+  log(`3D: ${label} (4 orientations)`);
   try {
-    const shapes: VMobject[] = [];
-
-    const sphere = new Sphere({ radius: 1.2 }) as unknown as VMobject;
-    sphere.shift(np.array([-5, 1.5, 0]));
-    shapes.push(sphere);
-
-    const cube = new Cube({ sideLength: 1.8 }) as unknown as VMobject;
-    cube.shift(np.array([-1.5, 1.5, 0]));
-    shapes.push(cube);
-
-    const cone = new Cone({ baseRadius: 1.0, height: 2.0 }) as unknown as VMobject;
-    cone.shift(np.array([2, 1.5, 0]));
-    shapes.push(cone);
-
-    const cyl = new Cylinder({ radius: 0.8, height: 2.0 }) as unknown as VMobject;
-    cyl.shift(np.array([5, 1.5, 0]));
-    shapes.push(cyl);
-
-    const torus = new Torus({ majorRadius: 1.2, minorRadius: 0.4 }) as unknown as VMobject;
-    torus.shift(np.array([-3, -2, 0]));
-    shapes.push(torus);
-
-    let total = 0;
-    for (const mob of shapes) {
+    // 2×2 grid: each cell shows the same shape rotated differently so the
+    // viewer gets a full-geometry intuition without needing to orbit.
+    const cells: Array<{ pos: [number, number, number]; rot: () => void }> = [
+      { pos: [-3.2,  1.8, 0], rot: () => {} },
+      { pos: [ 3.2,  1.8, 0], rot: () => {} },
+      { pos: [-3.2, -1.8, 0], rot: () => {} },
+      { pos: [ 3.2, -1.8, 0], rot: () => {} },
+    ];
+    // Four distinct view rotations applied to shape #2..4 (shape #1 is identity).
+    const rotations: Array<[number, [number, number, number]]> = [
+      [0, [0, 1, 0]],
+      [Math.PI / 2, [0, 1, 0]],                // quarter-turn about Y
+      [Math.PI / 2, [1, 0, 0]],                // quarter-turn about X
+      [Math.PI / 3, [1, 1, 0]],                // oblique tilt
+    ];
+    let totalParts = 0;
+    for (let i = 0; i < 4; i++) {
+      const mob = build();
+      mob.scale(0.55);
+      const [angle, axis] = rotations[i];
+      if (angle !== 0) mob.rotate(angle, np.array(axis));
+      mob.shift(np.array(cells[i].pos));
       const parts = extractFamily(mob);
-      total += parts.length;
-      for (const p of parts) {
-        // Flatten Z coordinates for 2D display
-        p.points = p.points.map(([x, y, _z]) => [x, y, 0] as Point3);
-        scene.add(p);
-      }
+      for (const p of parts) scene.add(p);
+      totalParts += parts.length;
     }
-    log(`  → ${shapes.length} 3D shapes → ${total} sub-surfaces`);
+    log(`  → 4× shapes, ${totalParts} sub-surfaces total`);
     scene.play();
   } catch (e) {
     log(`  ERROR: ${e}`);
   }
+}
+
+(window as any).testSphere = () => show3DShape("Sphere",
+  () => new Sphere({ radius: 1.5, resolution: [16, 16] }) as unknown as VMobject);
+
+(window as any).testCube = () => show3DShape("Cube",
+  () => new Cube({ sideLength: 2.0 }) as unknown as VMobject);
+
+(window as any).testCone = () => show3DShape("Cone",
+  () => new Cone({ baseRadius: 1.2, height: 2.4, resolution: [16, 8] }) as unknown as VMobject);
+
+(window as any).testCylinder = () => show3DShape("Cylinder",
+  () => new Cylinder({ radius: 1.0, height: 2.4, resolution: [16, 8] }) as unknown as VMobject);
+
+(window as any).testTorus = () => show3DShape("Torus",
+  () => new Torus({ majorRadius: 1.4, minorRadius: 0.45, resolution: [16, 10] }) as unknown as VMobject);
+
+(window as any).testTetrahedron = () => show3DShape("Tetrahedron",
+  () => new Tetrahedron() as unknown as VMobject);
+
+(window as any).testOctahedron = () => show3DShape("Octahedron",
+  () => new Octahedron() as unknown as VMobject);
+
+(window as any).testIcosahedron = () => show3DShape("Icosahedron",
+  () => new Icosahedron() as unknown as VMobject);
+
+(window as any).testDodecahedron = () => show3DShape("Dodecahedron",
+  () => new Dodecahedron() as unknown as VMobject);
+
+// ── TEXT & EQUATIONS (HTML overlay + KaTeX) ─────────────────
+//
+// The engine's Text/MathTex classes currently have no SVG rendering backend in
+// the browser (Python Manim uses Pango + pdflatex+dvisvgm). For the demo we
+// overlay HTML elements on top of the canvas, positioned in scene coordinates.
+// Plain text uses native CSS; equations are rendered by KaTeX. This is
+// separate from the engine — it's purely a presentation layer for the demo.
+
+const textOverlay = document.getElementById("text-overlay")!;
+
+/** Scene (x, y) → % coords inside the canvas-wrap box. */
+function sceneToPercent(x: number, y: number): { left: string; top: string } {
+  return {
+    left: `${50 + (x / FRAME_WIDTH) * 100}%`,
+    top: `${50 - (y / FRAME_HEIGHT) * 100}%`,
+  };
+}
+
+interface TextOpts {
+  size?: number;          // CSS px
+  color?: string;         // CSS color
+  weight?: string;        // CSS font-weight
+  italic?: boolean;
+  font?: string;          // CSS font-family (overrides default)
+  align?: "center" | "left" | "right";
+}
+
+function clearTextOverlay(): void {
+  textOverlay.innerHTML = "";
+}
+
+function addText(content: string, x: number, y: number, opts: TextOpts = {}): HTMLDivElement {
+  const el = document.createElement("div");
+  el.className = "text-el" + (opts.align && opts.align !== "center" ? " " + opts.align : "");
+  el.textContent = content;
+  const { left, top } = sceneToPercent(x, y);
+  el.style.left = left;
+  el.style.top = top;
+  if (opts.size !== undefined) el.style.fontSize = `${opts.size}px`;
+  if (opts.color) el.style.color = opts.color;
+  if (opts.weight) el.style.fontWeight = opts.weight;
+  if (opts.italic) el.style.fontStyle = "italic";
+  if (opts.font) el.style.fontFamily = opts.font;
+  textOverlay.appendChild(el);
+  return el;
+}
+
+function addTex(tex: string, x: number, y: number, opts: TextOpts = {}): HTMLDivElement {
+  const el = document.createElement("div");
+  el.className = "text-el" + (opts.align && opts.align !== "center" ? " " + opts.align : "");
+  try {
+    el.innerHTML = katex.renderToString(tex, {
+      displayMode: true,
+      throwOnError: false,
+      output: "html",
+    });
+  } catch (e) {
+    el.textContent = tex;
+  }
+  const { left, top } = sceneToPercent(x, y);
+  el.style.left = left;
+  el.style.top = top;
+  if (opts.size !== undefined) el.style.fontSize = `${opts.size}px`;
+  if (opts.color) el.style.color = opts.color;
+  textOverlay.appendChild(el);
+  return el;
+}
+
+function beginTextDemo(title: string): void {
+  scene.clearAll();
+  clearTextOverlay();
+  log(title);
+}
+
+// ── Plain text demos ──────────────────────────────────────────
+
+(window as any).textPlain = () => {
+  beginTextDemo("Plain Text: size hierarchy");
+  addText("Tiny",    -5, 2.5, { size: 14 });
+  addText("Small",   -2.5, 2.5, { size: 22 });
+  addText("Medium",   0,   2.5, { size: 34 });
+  addText("Large",    2.5, 2.5, { size: 52 });
+  addText("Huge",     5,   2.5, { size: 80 });
+  addText("Regular weight",  0,  0.5, { size: 32, weight: "400" });
+  addText("Bold weight",     0, -0.5, { size: 32, weight: "700" });
+  addText("Italic style",    0, -1.8, { size: 32, italic: true });
+  addText("Monospace",       0, -3.0, { size: 30, font: "'Cascadia Code', 'Fira Code', monospace" });
 };
 
-(window as any).testPolyhedra = () => {
-  scene.clearAll();
-  log("3D Polyhedra: Tetrahedron, Octahedron, Icosahedron, Dodecahedron");
+(window as any).textColors = () => {
+  beginTextDemo("Colored Text");
+  const rows: Array<[string, string]> = [
+    ["#ff6b6b", "Passion Red"],
+    ["#ffa502", "Sunset Orange"],
+    ["#feca57", "Golden Yellow"],
+    ["#48dbfb", "Sky Blue"],
+    ["#1dd1a1", "Mint Green"],
+    ["#a29bfe", "Lavender"],
+    ["#ff9ff3", "Pink Blossom"],
+  ];
+  rows.forEach(([color, name], i) => {
+    const y = 3 - i * 0.9;
+    addText(name, 0, y, { size: 36, color, weight: "600" });
+  });
+};
 
-  try {
-    const shapes: [any, string, number[]][] = [
-      [Tetrahedron, "Tetrahedron", [-5, 0, 0]],
-      [Octahedron, "Octahedron", [-1.5, 0, 0]],
-      [Icosahedron, "Icosahedron", [2, 0, 0]],
-      [Dodecahedron, "Dodecahedron", [5.5, 0, 0]],
-    ];
+(window as any).textTitleCard = () => {
+  beginTextDemo("Title Card");
+  addText("manim-ts",        0,  1.5, { size: 96, color: "#9cdceb", weight: "700" });
+  addText("Mathematical Animation Engine",  0,  0, { size: 28, color: "#ccc" });
+  addText("TypeScript port • 1:1 Python Manim parity",  0, -1, { size: 18, color: "#888", italic: true });
+  addText("v0.1.0",  0, -2.3, { size: 16, color: "#555", font: "monospace" });
+};
 
-    let total = 0;
-    for (const [Cls, name, pos] of shapes) {
-      try {
-        const mob = new Cls() as unknown as VMobject;
-        mob.shift(np.array(pos));
-        const parts = extractFamily(mob);
-        total += parts.length;
-        for (const p of parts) {
-          p.points = p.points.map(([x, y, _z]) => [x, y, 0] as Point3);
-          scene.add(p);
-        }
-      } catch (e) {
-        log(`  ${name}: ${e}`);
-      }
+(window as any).textMultiline = () => {
+  beginTextDemo("Multi-line Paragraph");
+  const lines = [
+    "Manim is a community-maintained Python library",
+    "for creating mathematical animations.",
+    "",
+    "This is a TypeScript port that mirrors its public API,",
+    "allowing browser-based math explanations without",
+    "a Python toolchain.",
+  ];
+  lines.forEach((line, i) => {
+    addText(line, 0, 2.2 - i * 0.7, { size: 26, color: "#ddd" });
+  });
+};
+
+// ── Equation demos ────────────────────────────────────────────
+
+(window as any).textPythagoras = () => {
+  beginTextDemo("Pythagorean Theorem");
+  addText("The Pythagorean Theorem", 0, 2.5, { size: 36, color: "#9cdceb" });
+  addTex("a^2 + b^2 = c^2", 0, 0.5, { size: 64 });
+  addText("where c is the hypotenuse of a right triangle", 0, -1.8, { size: 22, color: "#aaa", italic: true });
+};
+
+(window as any).textQuadratic = () => {
+  beginTextDemo("Quadratic Formula");
+  addText("For ax² + bx + c = 0:", 0, 2.5, { size: 32, color: "#ddd" });
+  addTex("x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}", 0, 0, { size: 60 });
+  addText("discriminant Δ = b² − 4ac", 0, -2.3, { size: 24, color: "#ffa502", italic: true });
+};
+
+(window as any).textEuler = () => {
+  beginTextDemo("Euler's Identity");
+  addText("Euler's Identity", 0, 2.5, { size: 36, color: "#ff9ff3" });
+  addTex("e^{i\\pi} + 1 = 0", 0, 0.3, { size: 96 });
+  addText("connecting 0, 1, π, e, and i", 0, -2.0, { size: 24, color: "#aaa", italic: true });
+};
+
+(window as any).textEinstein = () => {
+  beginTextDemo("Mass-Energy Equivalence");
+  addTex("E = mc^2", 0, 0.5, { size: 120 });
+  addText("— Albert Einstein, 1905", 0, -2.0, { size: 24, color: "#888", italic: true });
+};
+
+(window as any).textMaxwell = () => {
+  beginTextDemo("Maxwell's Equations");
+  addText("Maxwell's Equations (differential form)", 0, 3, { size: 28, color: "#9cdceb" });
+  addTex("\\nabla \\cdot \\mathbf{E} = \\frac{\\rho}{\\varepsilon_0}",            -3.2,  1.2, { size: 34 });
+  addTex("\\nabla \\cdot \\mathbf{B} = 0",                                          3.2,  1.2, { size: 34 });
+  addTex("\\nabla \\times \\mathbf{E} = -\\frac{\\partial \\mathbf{B}}{\\partial t}", -3.2, -1.2, { size: 34 });
+  addTex("\\nabla \\times \\mathbf{B} = \\mu_0\\mathbf{J} + \\mu_0\\varepsilon_0\\frac{\\partial \\mathbf{E}}{\\partial t}", 3.2, -1.2, { size: 30 });
+  addText("Gauss • Gauss (magnetism) • Faraday • Ampère-Maxwell", 0, -3, { size: 18, color: "#888" });
+};
+
+(window as any).textCalculus = () => {
+  beginTextDemo("Calculus Sampler");
+  addText("Fundamental Theorem of Calculus", 0, 3, { size: 28, color: "#9cdceb" });
+  addTex("\\int_a^b f'(x)\\,dx = f(b) - f(a)", 0, 1.5, { size: 42 });
+  addText("Chain Rule", 0, 0.2, { size: 24, color: "#feca57" });
+  addTex("\\frac{d}{dx}\\bigl[f(g(x))\\bigr] = f'(g(x))\\,g'(x)", 0, -1.2, { size: 38 });
+  addText("Product Rule", 0, -2.3, { size: 22, color: "#feca57" });
+  addTex("(fg)' = f'g + fg'", 0, -3, { size: 30 });
+};
+
+(window as any).textIntegrals = () => {
+  beginTextDemo("Integrals & Sums");
+  addTex("\\int_{-\\infty}^{\\infty} e^{-x^2}\\,dx = \\sqrt{\\pi}",  0, 2.4, { size: 44 });
+  addTex("\\sum_{n=1}^{\\infty} \\frac{1}{n^2} = \\frac{\\pi^2}{6}", 0, 0.6, { size: 44 });
+  addTex("\\prod_{n=1}^{\\infty}\\left(1 - \\frac{x^2}{n^2\\pi^2}\\right) = \\frac{\\sin x}{x}", 0, -1.4, { size: 38 });
+  addText("Gaussian • Basel problem • Euler's sine product", 0, -3, { size: 18, color: "#888", italic: true });
+};
+
+(window as any).textLimits = () => {
+  beginTextDemo("Limits & Derivatives");
+  addText("Definition of the derivative", 0, 3, { size: 26, color: "#9cdceb" });
+  addTex("f'(x) = \\lim_{h \\to 0} \\frac{f(x+h) - f(x)}{h}", 0, 1.4, { size: 42 });
+  addText("Classic limits", 0, 0.1, { size: 22, color: "#feca57" });
+  addTex("\\lim_{x \\to 0} \\frac{\\sin x}{x} = 1", -3.5, -1.3, { size: 34 });
+  addTex("\\lim_{n \\to \\infty} \\left(1 + \\frac{1}{n}\\right)^n = e", 3.5, -1.3, { size: 34 });
+};
+
+(window as any).textSeries = () => {
+  beginTextDemo("Famous Series");
+  addText("Taylor / Maclaurin series", 0, 3, { size: 26, color: "#9cdceb" });
+  addTex("e^x = \\sum_{n=0}^{\\infty} \\frac{x^n}{n!}", 0, 1.3, { size: 40 });
+  addTex("\\sin x = \\sum_{n=0}^{\\infty} \\frac{(-1)^n x^{2n+1}}{(2n+1)!}", 0, -0.4, { size: 34 });
+  addTex("\\cos x = \\sum_{n=0}^{\\infty} \\frac{(-1)^n x^{2n}}{(2n)!}",     0, -2.2, { size: 34 });
+};
+
+(window as any).textTrig = () => {
+  beginTextDemo("Trigonometric Identities");
+  addText("Trig Identities", 0, 3, { size: 28, color: "#9cdceb" });
+  addTex("\\sin^2\\theta + \\cos^2\\theta = 1", 0, 1.6, { size: 40 });
+  addTex("\\sin(2\\theta) = 2\\sin\\theta\\cos\\theta", 0, 0.1, { size: 36 });
+  addTex("\\cos(2\\theta) = \\cos^2\\theta - \\sin^2\\theta", 0, -1.4, { size: 36 });
+  addTex("\\tan\\theta = \\frac{\\sin\\theta}{\\cos\\theta}", 0, -2.9, { size: 34 });
+};
+
+(window as any).textMatrix = () => {
+  beginTextDemo("Matrix Equation");
+  addText("Solving a linear system Ax = b", 0, 3, { size: 26, color: "#9cdceb" });
+  addTex(
+    "\\begin{pmatrix} 2 & 1 & -1 \\\\ -3 & -1 & 2 \\\\ -2 & 1 & 2 \\end{pmatrix}" +
+    "\\begin{pmatrix} x \\\\ y \\\\ z \\end{pmatrix}" +
+    "= \\begin{pmatrix} 8 \\\\ -11 \\\\ -3 \\end{pmatrix}",
+    0, 0.5, { size: 36 },
+  );
+  addText("Gaussian elimination → (x, y, z) = (2, 3, −1)", 0, -2.5, { size: 22, color: "#1dd1a1", italic: true });
+};
+
+(window as any).textSetTheory = () => {
+  beginTextDemo("Set Theory");
+  addText("Sets and Operations", 0, 3, { size: 28, color: "#9cdceb" });
+  addTex("A \\cup B = \\{ x : x \\in A \\text{ or } x \\in B \\}", 0, 1.5, { size: 34 });
+  addTex("A \\cap B = \\{ x : x \\in A \\text{ and } x \\in B \\}", 0, 0.0, { size: 34 });
+  addTex("A \\setminus B = \\{ x : x \\in A \\text{ and } x \\notin B \\}", 0, -1.5, { size: 34 });
+  addTex("|A \\cup B| = |A| + |B| - |A \\cap B|", 0, -3, { size: 30 });
+};
+
+(window as any).textGreek = () => {
+  beginTextDemo("Greek Alphabet");
+  const letters: Array<[string, string]> = [
+    ["\\alpha", "alpha"],   ["\\beta", "beta"],    ["\\gamma", "gamma"],  ["\\delta", "delta"],
+    ["\\varepsilon", "epsilon"], ["\\zeta", "zeta"],     ["\\eta", "eta"],      ["\\theta", "theta"],
+    ["\\iota", "iota"],     ["\\kappa", "kappa"],   ["\\lambda", "lambda"], ["\\mu", "mu"],
+    ["\\nu", "nu"],         ["\\xi", "xi"],         ["\\pi", "pi"],         ["\\rho", "rho"],
+    ["\\sigma", "sigma"],   ["\\tau", "tau"],       ["\\phi", "phi"],       ["\\chi", "chi"],
+    ["\\psi", "psi"],       ["\\omega", "omega"],
+  ];
+  const cols = 6;
+  const dx = 2.0, dy = 1.1;
+  const x0 = -(cols - 1) / 2 * dx;
+  letters.forEach(([tex, name], i) => {
+    const r = Math.floor(i / cols), c = i % cols;
+    const x = x0 + c * dx, y = 2.6 - r * dy;
+    addTex(tex, x, y + 0.2, { size: 34 });
+    addText(name, x, y - 0.4, { size: 13, color: "#888" });
+  });
+};
+
+(window as any).textFractions = () => {
+  beginTextDemo("Nested Fractions");
+  addText("Continued fraction for the golden ratio φ", 0, 3, { size: 24, color: "#9cdceb" });
+  addTex("\\varphi = 1 + \\cfrac{1}{1 + \\cfrac{1}{1 + \\cfrac{1}{1 + \\cfrac{1}{1 + \\ddots}}}}", 0, 0, { size: 42 });
+  addTex("\\varphi = \\frac{1 + \\sqrt{5}}{2} \\approx 1.618\\ldots", 0, -2.7, { size: 32 });
+};
+
+// ── Labeled geometry demos (text + real engine mobjects) ──────
+
+(window as any).textLabeledCircle = () => {
+  beginTextDemo("Labeled Circle");
+  const circle = new Circle({ radius: 2.2, strokeColor: BLUE_D, strokeWidth: 3, strokeOpacity: 1 }) as VMobject;
+  for (const p of extractFamily(circle)) scene.add(p);
+  // Radius line
+  const r = new Line(np.array([0, 0, 0]), np.array([2.2, 0, 0]), {
+    strokeColor: YELLOW, strokeWidth: 2, strokeOpacity: 1,
+  }) as VMobject;
+  for (const p of extractFamily(r)) scene.add(p);
+  // Center dot
+  const dot = new Dot(np.array([0, 0, 0]), { color: WHITE }) as VMobject;
+  for (const p of extractFamily(dot)) scene.add(p);
+  scene.play();
+  addText("O",  -0.25, -0.25, { size: 22, color: "#fff", italic: true });
+  addText("r",   1.1,  0.25, { size: 26, color: "#feca57", italic: true });
+  addTex("C = 2\\pi r", -4, 2.5, { size: 36 });
+  addTex("A = \\pi r^2", 4, 2.5, { size: 36 });
+  addText("Circle of radius r", 0, -3.2, { size: 22, color: "#aaa", italic: true });
+};
+
+(window as any).textLabeledTriangle = () => {
+  beginTextDemo("Labeled Right Triangle");
+  // Right triangle: legs 3, 4, hypotenuse 5 (scaled down)
+  const s = 0.9;
+  const A: Point3 = [-2 * s, -1.5 * s, 0];
+  const B: Point3 = [ 2 * s, -1.5 * s, 0];
+  const C: Point3 = [-2 * s,  2.5 * s, 0];
+  const tri = new Polygon(
+    [np.array(A), np.array(B), np.array(C)],
+    { strokeColor: GREEN, strokeWidth: 3, strokeOpacity: 1, fillColor: GREEN, fillOpacity: 0.15 },
+  ) as VMobject;
+  for (const p of extractFamily(tri)) scene.add(p);
+  scene.play();
+  // Vertex labels
+  addText("A", A[0] - 0.3, A[1] - 0.3, { size: 28, weight: "600" });
+  addText("B", B[0] + 0.3, B[1] - 0.3, { size: 28, weight: "600" });
+  addText("C", C[0] - 0.3, C[1] + 0.3, { size: 28, weight: "600" });
+  // Side labels
+  addText("a", (A[0] + B[0]) / 2, A[1] - 0.5, { size: 26, color: "#feca57", italic: true });
+  addText("b", A[0] - 0.5, (A[1] + C[1]) / 2, { size: 26, color: "#feca57", italic: true });
+  addText("c", (B[0] + C[0]) / 2 + 0.3, (B[1] + C[1]) / 2 + 0.3, { size: 26, color: "#feca57", italic: true });
+  addTex("a^2 + b^2 = c^2", 4, 2.5, { size: 32 });
+};
+
+(window as any).textGraphAnnotated = () => {
+  beginTextDemo("Annotated Sine Graph");
+  const axes = new Axes({
+    xRange: [-4, 4, 1], yRange: [-1.5, 1.5, 0.5],
+    xLength: 10, yLength: 4,
+    axisConfig: { strokeColor: GRAY_B, strokeOpacity: 1, strokeWidth: 2 },
+  }) as unknown as VMobject;
+  for (const p of extractFamily(axes)) scene.add(p);
+  const sinGraph = (axes as any).plot
+    ? (axes as any).plot((x: number) => Math.sin(x), { xRange: [-PI, PI], strokeColor: YELLOW, strokeWidth: 3 })
+    : new FunctionGraph((x: number) => Math.sin(x), { xRange: [-PI, PI, 0.05], strokeColor: YELLOW, strokeWidth: 3, strokeOpacity: 1 });
+  for (const p of extractFamily(sinGraph as VMobject)) scene.add(p);
+  scene.play();
+  addTex("y = \\sin(x)", 3.2, 2.5, { size: 34, color: "#feca57" });
+  addText("amplitude = 1",  -4.5, 1.5, { size: 18, color: "#aaa", align: "left" });
+  addTex("\\text{period} = 2\\pi", -4.5, 1.0, { size: 22, color: "#aaa", align: "left" });
+  addText("π",  PI * (10 / 8) - 0.1, -0.5, { size: 20, color: "#888" });
+  addText("−π", -PI * (10 / 8) - 0.1, -0.5, { size: 20, color: "#888" });
+  addText("0", 0.15, -0.35, { size: 20, color: "#888" });
+};
+
+// ── Step-by-step derivation ───────────────────────────────────
+
+(window as any).textDerivation = () => {
+  beginTextDemo("Step-by-Step Derivation");
+  addText("Solving x² − 5x + 6 = 0", 0, 3, { size: 28, color: "#9cdceb" });
+  const steps = [
+    "x^2 - 5x + 6 = 0",
+    "(x - 2)(x - 3) = 0",
+    "x - 2 = 0 \\quad \\text{or} \\quad x - 3 = 0",
+    "x = 2 \\quad \\text{or} \\quad x = 3",
+  ];
+  steps.forEach((s, i) => {
+    addTex(s, 0, 1.7 - i * 1.4, { size: 36 });
+    if (i < steps.length - 1) {
+      addText("↓", 0, 1.0 - i * 1.4, { size: 22, color: "#888" });
     }
-    log(`  → ${total} total faces rendered`);
-    scene.play();
-  } catch (e) {
-    log(`  ERROR: ${e}`);
+  });
+  addText("Solutions: { 2, 3 }", 0, -3.3, { size: 22, color: "#1dd1a1", italic: true });
+};
+
+// ── Gradient row ──────────────────────────────────────────────
+
+(window as any).textGradient = () => {
+  beginTextDemo("Gradient Text Row");
+  const word = "MATHEMATICS";
+  const palette = ["#ff6b6b", "#ffa502", "#feca57", "#c8e020", "#1dd1a1", "#48dbfb", "#5f27cd", "#a29bfe", "#ff9ff3", "#ee5253", "#ff6348"];
+  const n = word.length;
+  const dx = 1.0;
+  const x0 = -((n - 1) / 2) * dx;
+  for (let i = 0; i < n; i++) {
+    addText(word[i], x0 + i * dx, 0, { size: 72, color: palette[i % palette.length], weight: "800" });
   }
+  addText("a splash of color across every letter", 0, -2, { size: 22, color: "#aaa", italic: true });
+};
+
+// ── Wall of equations ─────────────────────────────────────────
+
+(window as any).textAllEquations = () => {
+  beginTextDemo("All Equations Wall");
+  const eqs: Array<[string, number, number, number]> = [
+    ["e^{i\\pi} + 1 = 0",                                             -4.5,  3.0, 26],
+    ["E = mc^2",                                                       0,    3.0, 30],
+    ["a^2 + b^2 = c^2",                                                4.5,  3.0, 26],
+    ["\\int_a^b f'(x)\\,dx = f(b) - f(a)",                             -4.5,  1.5, 22],
+    ["\\sum_{n=1}^{\\infty} \\frac{1}{n^2} = \\frac{\\pi^2}{6}",       0,    1.5, 22],
+    ["\\lim_{h \\to 0} \\frac{f(x+h)-f(x)}{h}",                        4.5,  1.5, 22],
+    ["x = \\frac{-b \\pm \\sqrt{b^2-4ac}}{2a}",                        -4.5,  0.0, 22],
+    ["\\sin^2\\theta + \\cos^2\\theta = 1",                            0,    0.0, 22],
+    ["\\nabla \\cdot \\mathbf{E} = \\tfrac{\\rho}{\\varepsilon_0}",    4.5,  0.0, 22],
+    ["\\int_{-\\infty}^{\\infty} e^{-x^2}dx = \\sqrt{\\pi}",           -4.5, -1.5, 22],
+    ["F = G\\,\\tfrac{m_1 m_2}{r^2}",                                  0,   -1.5, 24],
+    ["i\\hbar\\tfrac{\\partial \\psi}{\\partial t} = \\hat{H}\\psi",   4.5, -1.5, 22],
+    ["\\varphi = \\tfrac{1+\\sqrt{5}}{2}",                             -4.5, -3.0, 24],
+    ["\\zeta(s) = \\sum \\tfrac{1}{n^s}",                              0,   -3.0, 24],
+    ["PV = nRT",                                                       4.5, -3.0, 24],
+  ];
+  for (const [tex, x, y, size] of eqs) addTex(tex, x, y, { size });
 };
 
 // ── GRAPH THEORY ────────────────────────────────────────────
@@ -2280,6 +2755,7 @@ function layoutCircular(n: number, scale: number): Array<[number, number]> {
 
 (window as any).clearScene = () => {
   scene.clearAll();
+  clearTextOverlay();
   log("Scene cleared");
 };
 

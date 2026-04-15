@@ -22,6 +22,9 @@ import { BLACK } from "../../core/color/index.js";
 import { DefaultSectionType } from "../section/index.js";
 import { Timeline } from "../timeline/timeline.js";
 import { PointerDispatcher } from "../interaction/pointer_dispatcher.js";
+import type { SceneBackend } from "../../renderer/scene_backend.js";
+import { CairoBackend } from "../../renderer/cairo/index.js";
+import { ThreeBackend } from "../../renderer/three/three_backend.js";
 
 // ─── Constants ───────────────────────────────────────────────
 
@@ -54,6 +57,11 @@ export interface SceneOptions {
    * running headlessly for MP4 export.
    */
   canvas?: HTMLCanvasElement | null;
+  /**
+   * Renderer backend selection. Mirrors ManimCE's `config.renderer`.
+   * @default "cairo"
+   */
+  renderer?: "cairo" | "opengl";
 }
 
 // ─── Subcaption ──────────────────────────────────────────────
@@ -96,6 +104,10 @@ export class Scene implements IScene {
   private _pointerDispatcher: PointerDispatcher | null;
   /** Canvas element (used by pointer dispatcher, TimelineControls overlay). */
   private _canvas: HTMLCanvasElement | null;
+  /** Renderer backend (null when headless / video-export). */
+  protected _backend: SceneBackend | null;
+  /** Which renderer was requested ("cairo" | "opengl"). */
+  private _rendererType: "cairo" | "opengl";
 
   constructor(options: SceneOptions = {}) {
     this.alwaysUpdateMobjects = options.alwaysUpdateMobjects ?? false;
@@ -119,6 +131,13 @@ export class Scene implements IScene {
     this.subcaptions = [];
     this.numPlays = 0;
 
+    this._rendererType = options.renderer ?? "cairo";
+    this._backend = null;
+
+    if (options.canvas) {
+      this._backend = this._createBackend(options.canvas);
+    }
+
     // Additive features (opt-in; no effect when disabled)
     this._timeline = options.playback ? new Timeline(this) : null;
     this._canvas = options.canvas ?? null;
@@ -126,6 +145,18 @@ export class Scene implements IScene {
     if (options.interactive) {
       this._enableInteraction();
     }
+  }
+
+  /**
+   * Instantiate the correct SceneBackend based on `_rendererType`.
+   * Subclasses (ThreeScene) that manage their own backend should
+   * override or simply not call super with a canvas.
+   */
+  protected _createBackend(canvas: HTMLCanvasElement): SceneBackend {
+    if (this._rendererType === "opengl") {
+      return new ThreeBackend({ canvas });
+    }
+    return new CairoBackend({ canvas });
   }
 
   // ─── Additive: Playback + Interaction ────────────────────
@@ -166,6 +197,16 @@ export class Scene implements IScene {
 
   get canvas(): HTMLCanvasElement | null {
     return this._canvas;
+  }
+
+  /** The active SceneBackend, or null when running headlessly. */
+  get backend(): SceneBackend | null {
+    return this._backend;
+  }
+
+  /** The renderer type ("cairo" | "opengl"). */
+  get rendererType(): "cairo" | "opengl" {
+    return this._rendererType;
   }
 
   private _enableInteraction(): void {
@@ -227,6 +268,14 @@ export class Scene implements IScene {
     this.tearDown();
   }
 
+  /** Delegate a single visual frame to the backend (no-op when headless). */
+  renderFrame(): void {
+    if (this._backend) {
+      this._backend.sync();
+      this._backend.render();
+    }
+  }
+
   // ─── Mobject management ──────────────────────────────────
 
   add(...mobjects: IMobject[]): this {
@@ -234,6 +283,7 @@ export class Scene implements IScene {
       // Remove first to avoid duplicates, then re-add at end
       this.mobjects = this.mobjects.filter((m) => m !== mob);
       this.mobjects.push(mob);
+      if (this._backend) this._backend.addMobject(mob);
     }
     return this;
   }
@@ -244,6 +294,9 @@ export class Scene implements IScene {
     this.foregroundMobjects = this.foregroundMobjects.filter(
       (m) => !toRemove.has(m),
     );
+    for (const mob of mobjects) {
+      if (this._backend) this._backend.removeMobject(mob);
+    }
     return this;
   }
 
@@ -287,6 +340,11 @@ export class Scene implements IScene {
   }
 
   clear(): this {
+    if (this._backend) {
+      for (const mob of this.mobjects) {
+        this._backend.removeMobject(mob);
+      }
+    }
     this.mobjects = [];
     this.foregroundMobjects = [];
     return this;

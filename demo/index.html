@@ -126,13 +126,36 @@
       color: #888;
     }
     .info strong { color: #9cdceb; }
+    .renderer-btn {
+      background: #222; color: #ccc; border: 1px solid #444;
+      padding: 4px 10px; border-radius: 4px; cursor: pointer;
+      font-size: 0.8rem; font-family: inherit;
+    }
+    .renderer-btn:hover { background: #2d2f3a; border-color: #9cdceb; }
+    .renderer-btn.active {
+      background: #9cdceb; color: #111; border-color: #9cdceb;
+    }
   </style>
 </head>
 <body>
   <h1>manim-ts — Full Engine Test</h1>
+  <div class="renderer-toggle" style="margin-bottom:12px; display:flex; gap:8px; align-items:center;">
+    <span style="font-size:0.85rem; color:#888;">Renderer:</span>
+    <button id="renderer-cairo" class="renderer-btn active" onclick="window.setRendererMode('cairo'); window._syncRendererBtns();">Canvas2D (Cairo)</button>
+    <button id="renderer-opengl" class="renderer-btn" onclick="window.setRendererMode('opengl'); window._syncRendererBtns();">three.js (OpenGL)</button>
+  </div>
+  <script>
+    window._syncRendererBtns = function() {
+      var m = window.getRendererMode && window.getRendererMode();
+      document.getElementById('renderer-opengl').classList.toggle('active', m === 'opengl');
+      document.getElementById('renderer-cairo').classList.toggle('active', m === 'cairo');
+    };
+  </script>
+  <div id="canvas-root">
   <div class="canvas-wrap">
     <canvas id="manim-canvas" width="1280" height="720"></canvas>
     <div id="text-overlay"></div>
+  </div>
   </div>
 
   <!-- Category tabs -->
@@ -154,6 +177,7 @@
     <div class="tab" data-panel="valuetracker">ValueTracker</div>
     <div class="tab" data-panel="colors">Colors</div>
     <div class="tab" data-panel="stress">Stress Test</div>
+    <div class="tab" data-panel="mathtex-native">MathTex (native)</div>
   </div>
 
   <!-- Geometry panel -->
@@ -246,8 +270,44 @@
 
   <!-- 3D Shapes panel -->
   <div class="panel" id="panel-3d">
-    <button onclick="test3DShapes()">Sphere, Cube, Cone, Cylinder, Torus</button>
-    <button onclick="testPolyhedra()">Tetrahedron, Octahedron, Icosahedron, Dodecahedron</button>
+    <button onclick="testSphere()">Sphere</button>
+    <button onclick="testCube()">Cube</button>
+    <button onclick="testCone()">Cone</button>
+    <button onclick="testCylinder()">Cylinder</button>
+    <button onclick="testTorus()">Torus</button>
+    <button onclick="testTetrahedron()">Tetrahedron</button>
+    <button onclick="testOctahedron()">Octahedron</button>
+    <button onclick="testIcosahedron()">Icosahedron</button>
+    <button onclick="testDodecahedron()">Dodecahedron</button>
+    <button onclick="clearScene()">Clear</button>
+  </div>
+
+  <!-- Text & Equations panel -->
+  <div class="panel" id="panel-text">
+    <button onclick="textPlain()">Plain Text Sizes</button>
+    <button onclick="textColors()">Colored Text</button>
+    <button onclick="textTitleCard()">Title Card</button>
+    <button onclick="textMultiline()">Multi-line Paragraph</button>
+    <button onclick="textPythagoras()">Pythagoras: a² + b² = c²</button>
+    <button onclick="textQuadratic()">Quadratic Formula</button>
+    <button onclick="textEuler()">Euler's Identity</button>
+    <button onclick="textEinstein()">E = mc²</button>
+    <button onclick="textMaxwell()">Maxwell's Equations</button>
+    <button onclick="textCalculus()">Calculus Sampler</button>
+    <button onclick="textIntegrals()">Integrals &amp; Sums</button>
+    <button onclick="textLimits()">Limits &amp; Derivatives</button>
+    <button onclick="textSeries()">Famous Series</button>
+    <button onclick="textTrig()">Trig Identities</button>
+    <button onclick="textMatrix()">Matrix Equation</button>
+    <button onclick="textSetTheory()">Set Theory</button>
+    <button onclick="textGreek()">Greek Alphabet</button>
+    <button onclick="textFractions()">Nested Fractions</button>
+    <button onclick="textLabeledCircle()">Labeled Circle (geometry)</button>
+    <button onclick="textLabeledTriangle()">Labeled Triangle</button>
+    <button onclick="textGraphAnnotated()">Annotated Sine Graph</button>
+    <button onclick="textDerivation()">Step-by-Step Derivation</button>
+    <button onclick="textGradient()">Gradient Text Row</button>
+    <button onclick="textAllEquations()">All Equations Wall</button>
     <button onclick="clearScene()">Clear</button>
   </div>
 
@@ -278,6 +338,16 @@
     <button onclick="clearScene()">Clear</button>
   </div>
 
+  <!-- MathTex (native) panel — uses BrowserMathTex (MathJax → VMobject → Canvas2D) -->
+  <div class="panel" id="panel-mathtex-native">
+    <button onclick="nativeMathQuadratic()">Quadratic Formula</button>
+    <button onclick="nativeMathEuler()">Euler's Identity</button>
+    <button onclick="nativeMathMaxwell()">Maxwell's Equations</button>
+    <button onclick="nativeMathPythagorean()">Pythagorean Theorem</button>
+    <button onclick="nativeMathTaylorSeries()">Taylor Series</button>
+    <button onclick="clearScene()">Clear</button>
+  </div>
+
   <!-- Log -->
   <div id="log"></div>
 
@@ -299,5 +369,125 @@
   </script>
 
   <script type="module" src="./real-demo.ts"></script>
+
+  <!-- MathTex (native) — BrowserMathTex renders LaTeX via MathJax → VMobject → Canvas2D -->
+  <script type="module">
+    import { BrowserMathTex } from "../src/mobject/text/mathtex_browser.ts";
+
+    const FRAME_W = 14.222222222222221;
+    const FRAME_H = 8;
+
+    /** Extract flat point list from a BrowserMathTex VGroup (recursive). */
+    function extractMobs(mob) {
+      const results = [];
+      const pts = mob.points;
+      if (pts && pts.shape && pts.shape[0] > 0) {
+        const n = pts.shape[0];
+        const flat = [];
+        for (let i = 0; i < n; i++) {
+          flat.push([pts.get([i, 0]), pts.get([i, 1])]);
+        }
+        results.push({
+          points: flat,
+          fillColor: mob.fillColor,
+          fillOpacity: mob.fillOpacity ?? 1,
+          strokeWidth: mob.strokeWidth ?? 0,
+          strokeColor: mob.strokeColor,
+          strokeOpacity: mob.strokeOpacity ?? 0,
+        });
+      }
+      const subs = mob.submobjects;
+      if (Array.isArray(subs)) {
+        for (const s of subs) {
+          if (s && s.points) results.push(...extractMobs(s));
+        }
+      }
+      return results;
+    }
+
+    /** Render a list of extracted mobs onto the canvas. */
+    function paintMobs(mobs) {
+      const canvas = document.getElementById("manim-canvas");
+      const ctx = canvas.getContext("2d");
+      const pw = canvas.width;
+      const ph = canvas.height;
+
+      ctx.clearRect(0, 0, pw, ph);
+      ctx.fillStyle = "#111111";
+      ctx.fillRect(0, 0, pw, ph);
+
+      ctx.save();
+      ctx.setTransform(pw / FRAME_W, 0, 0, -(ph / FRAME_H), pw / 2, ph / 2);
+
+      for (const mob of mobs) {
+        const pts = mob.points;
+        if (!pts || pts.length < 2) continue;
+        ctx.beginPath();
+        ctx.moveTo(pts[0][0], pts[0][1]);
+        for (let i = 1; i + 2 <= pts.length; i += 3) {
+          ctx.bezierCurveTo(
+            pts[i][0],     pts[i][1],
+            pts[i+1][0],   pts[i+1][1],
+            pts[i+2][0],   pts[i+2][1],
+          );
+        }
+        const last = pts[pts.length - 1];
+        const first = pts[0];
+        if (Math.abs(last[0] - first[0]) < 1e-4 && Math.abs(last[1] - first[1]) < 1e-4) {
+          ctx.closePath();
+        }
+        if (mob.fillOpacity > 0 && mob.fillColor) {
+          const fc = mob.fillColor;
+          ctx.fillStyle = `rgba(${Math.round(fc.r*255)},${Math.round(fc.g*255)},${Math.round(fc.b*255)},${mob.fillOpacity})`;
+          ctx.fill();
+        }
+        if (mob.strokeOpacity > 0 && mob.strokeWidth > 0 && mob.strokeColor) {
+          const sc = mob.strokeColor;
+          ctx.strokeStyle = `rgba(${Math.round(sc.r*255)},${Math.round(sc.g*255)},${Math.round(sc.b*255)},${mob.strokeOpacity})`;
+          ctx.lineWidth = mob.strokeWidth * 0.01;
+          ctx.lineJoin = "round";
+          ctx.lineCap = "round";
+          ctx.stroke();
+        }
+      }
+
+      ctx.restore();
+    }
+
+    /** Build and render a BrowserMathTex formula centred on screen. */
+    function showNativeTex(texString, label) {
+      const logEl = document.getElementById("log");
+      logEl.textContent = `MathTex (native): ${label}`;
+      try {
+        const mob = new BrowserMathTex([texString], { fontSize: 96 });
+        const mobs = extractMobs(mob);
+        paintMobs(mobs);
+      } catch (e) {
+        logEl.textContent = `MathTex error: ${e.message}`;
+        console.error(e);
+      }
+    }
+
+    window.nativeMathQuadratic = () =>
+      showNativeTex("x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}", "Quadratic Formula");
+
+    window.nativeMathEuler = () =>
+      showNativeTex("e^{i\\pi} + 1 = 0", "Euler's Identity");
+
+    window.nativeMathMaxwell = () =>
+      showNativeTex(
+        "\\nabla \\cdot \\mathbf{E} = \\frac{\\rho}{\\varepsilon_0}",
+        "Maxwell — Gauss's Law",
+      );
+
+    window.nativeMathPythagorean = () =>
+      showNativeTex("a^2 + b^2 = c^2", "Pythagorean Theorem");
+
+    window.nativeMathTaylorSeries = () =>
+      showNativeTex(
+        "e^x = \\sum_{n=0}^{\\infty} \\frac{x^n}{n!}",
+        "Taylor Series for e^x",
+      );
+  </script>
 </body>
 </html>
