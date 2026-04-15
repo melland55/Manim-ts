@@ -1,0 +1,38 @@
+{
+  "name": "manim-ts",
+  "version": "0.0.1-placeholder.0",
+  "description": "TypeScript port of Manim (Mathematical Animation Engine). Name reserved — real release coming soon.",
+  "type": "module",
+  "main": "./index.js",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    }
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "README.md"
+  ],
+  "keywords": [
+    "manim",
+    "animation",
+    "math",
+    "typescript"
+  ],
+  "author": "Andrew Melland",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/melland55/Manim-ts.git"
+  },
+  "homepage": "https://github.com/melland55/Manim-ts#readme",
+  "bugs": {
+    "url": "https://github.com/melland55/Manim-ts/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
